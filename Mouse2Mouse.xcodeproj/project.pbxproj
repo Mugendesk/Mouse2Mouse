@@ -1,0 +1,472 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		911779E72F0A252400E040C6 /* ClipboardSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 911779D72F0A252400E040C6 /* ClipboardSync.swift */; };
+		911779E82F0A252400E040C6 /* CryptoManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 911779D02F0A252400E040C6 /* CryptoManager.swift */; };
+		911779E92F0A252400E040C6 /* FileTransfer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 911779D82F0A252400E040C6 /* FileTransfer.swift */; };
+		911779EA2F0A252400E040C6 /* ConnectionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 911779CF2F0A252400E040C6 /* ConnectionManager.swift */; };
+		911779EB2F0A252400E040C6 /* InputCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 911779D22F0A252400E040C6 /* InputCapture.swift */; };
+		911779EC2F0A252400E040C6 /* WebSocketServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 911779E02F0A252400E040C6 /* WebSocketServer.swift */; };
+		911779ED2F0A252400E040C6 /* FileTransferServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 911779D92F0A252400E040C6 /* FileTransferServer.swift */; };
+		911779EE2F0A252400E040C6 /* PairingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 911779E42F0A252400E040C6 /* PairingView.swift */; };
+		911779EF2F0A252400E040C6 /* Mouse2MouseApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 911779DB2F0A252400E040C6 /* Mouse2MouseApp.swift */; };
+		911779F02F0A252400E040C6 /* DiscoveryService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 911779D12F0A252400E040C6 /* DiscoveryService.swift */; };
+		911779F12F0A252400E040C6 /* WebSocketClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 911779DF2F0A252400E040C6 /* WebSocketClient.swift */; };
+		911779F22F0A252400E040C6 /* ScreenLayoutView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 911779E52F0A252400E040C6 /* ScreenLayoutView.swift */; };
+		911779F32F0A252400E040C6 /* MenuBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 911779E32F0A252400E040C6 /* MenuBarView.swift */; };
+		911779F42F0A252400E040C6 /* Protocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 911779DE2F0A252400E040C6 /* Protocol.swift */; };
+		911779F52F0A252400E040C6 /* ScreenManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 911779D52F0A252400E040C6 /* ScreenManager.swift */; };
+		911779F62F0A252400E040C6 /* FileTransferView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 911779E22F0A252400E040C6 /* FileTransferView.swift */; };
+		911779F72F0A252400E040C6 /* PairingManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 911779D32F0A252400E040C6 /* PairingManager.swift */; };
+		911779F82F0A252400E040C6 /* InputReceiver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 911779DC2F0A252400E040C6 /* InputReceiver.swift */; };
+		911779F92F0A252400E040C6 /* PermissionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 911779D42F0A252400E040C6 /* PermissionManager.swift */; };
+		911779FA2F0A252400E040C6 /* InputTransmitter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 911779DD2F0A252400E040C6 /* InputTransmitter.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		911779C12F0A212E00E040C6 /* Mouse2Mouse.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Mouse2Mouse.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		911779CF2F0A252400E040C6 /* ConnectionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionManager.swift; sourceTree = "<group>"; };
+		911779D02F0A252400E040C6 /* CryptoManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CryptoManager.swift; sourceTree = "<group>"; };
+		911779D12F0A252400E040C6 /* DiscoveryService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiscoveryService.swift; sourceTree = "<group>"; };
+		911779D22F0A252400E040C6 /* InputCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputCapture.swift; sourceTree = "<group>"; };
+		911779D32F0A252400E040C6 /* PairingManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingManager.swift; sourceTree = "<group>"; };
+		911779D42F0A252400E040C6 /* PermissionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionManager.swift; sourceTree = "<group>"; };
+		911779D52F0A252400E040C6 /* ScreenManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenManager.swift; sourceTree = "<group>"; };
+		911779D72F0A252400E040C6 /* ClipboardSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardSync.swift; sourceTree = "<group>"; };
+		911779D82F0A252400E040C6 /* FileTransfer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileTransfer.swift; sourceTree = "<group>"; };
+		911779D92F0A252400E040C6 /* FileTransferServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileTransferServer.swift; sourceTree = "<group>"; };
+		911779DB2F0A252400E040C6 /* Mouse2MouseApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Mouse2MouseApp.swift; sourceTree = "<group>"; };
+		911779DC2F0A252400E040C6 /* InputReceiver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputReceiver.swift; sourceTree = "<group>"; };
+		911779DD2F0A252400E040C6 /* InputTransmitter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputTransmitter.swift; sourceTree = "<group>"; };
+		911779DE2F0A252400E040C6 /* Protocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Protocol.swift; sourceTree = "<group>"; };
+		911779DF2F0A252400E040C6 /* WebSocketClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebSocketClient.swift; sourceTree = "<group>"; };
+		911779E02F0A252400E040C6 /* WebSocketServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebSocketServer.swift; sourceTree = "<group>"; };
+		911779E22F0A252400E040C6 /* FileTransferView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileTransferView.swift; sourceTree = "<group>"; };
+		911779E32F0A252400E040C6 /* MenuBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarView.swift; sourceTree = "<group>"; };
+		911779E42F0A252400E040C6 /* PairingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingView.swift; sourceTree = "<group>"; };
+		911779E52F0A252400E040C6 /* ScreenLayoutView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenLayoutView.swift; sourceTree = "<group>"; };
+		911779FD2F0A57D600E040C6 /* Mouse2Mouse.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Mouse2Mouse.entitlements; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		911779C32F0A212E00E040C6 /* Mouse2Mouse */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Mouse2Mouse;
+			sourceTree = "<group>";
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		911779BE2F0A212E00E040C6 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		911779B82F0A212E00E040C6 = {
+			isa = PBXGroup;
+			children = (
+				911779FD2F0A57D600E040C6 /* Mouse2Mouse.entitlements */,
+				911779D62F0A252400E040C6 /* Core */,
+				911779DA2F0A252400E040C6 /* Features */,
+				911779DB2F0A252400E040C6 /* Mouse2MouseApp.swift */,
+				911779E12F0A252400E040C6 /* Network */,
+				911779E62F0A252400E040C6 /* UI */,
+				911779C32F0A212E00E040C6 /* Mouse2Mouse */,
+				911779C22F0A212E00E040C6 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		911779C22F0A212E00E040C6 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				911779C12F0A212E00E040C6 /* Mouse2Mouse.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		911779D62F0A252400E040C6 /* Core */ = {
+			isa = PBXGroup;
+			children = (
+				911779CF2F0A252400E040C6 /* ConnectionManager.swift */,
+				911779D02F0A252400E040C6 /* CryptoManager.swift */,
+				911779D12F0A252400E040C6 /* DiscoveryService.swift */,
+				911779D22F0A252400E040C6 /* InputCapture.swift */,
+				911779D32F0A252400E040C6 /* PairingManager.swift */,
+				911779D42F0A252400E040C6 /* PermissionManager.swift */,
+				911779D52F0A252400E040C6 /* ScreenManager.swift */,
+			);
+			path = Core;
+			sourceTree = "<group>";
+		};
+		911779DA2F0A252400E040C6 /* Features */ = {
+			isa = PBXGroup;
+			children = (
+				911779D72F0A252400E040C6 /* ClipboardSync.swift */,
+				911779D82F0A252400E040C6 /* FileTransfer.swift */,
+				911779D92F0A252400E040C6 /* FileTransferServer.swift */,
+			);
+			path = Features;
+			sourceTree = "<group>";
+		};
+		911779E12F0A252400E040C6 /* Network */ = {
+			isa = PBXGroup;
+			children = (
+				911779DC2F0A252400E040C6 /* InputReceiver.swift */,
+				911779DD2F0A252400E040C6 /* InputTransmitter.swift */,
+				911779DE2F0A252400E040C6 /* Protocol.swift */,
+				911779DF2F0A252400E040C6 /* WebSocketClient.swift */,
+				911779E02F0A252400E040C6 /* WebSocketServer.swift */,
+			);
+			path = Network;
+			sourceTree = "<group>";
+		};
+		911779E62F0A252400E040C6 /* UI */ = {
+			isa = PBXGroup;
+			children = (
+				911779E22F0A252400E040C6 /* FileTransferView.swift */,
+				911779E32F0A252400E040C6 /* MenuBarView.swift */,
+				911779E42F0A252400E040C6 /* PairingView.swift */,
+				911779E52F0A252400E040C6 /* ScreenLayoutView.swift */,
+			);
+			path = UI;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		911779C02F0A212E00E040C6 /* Mouse2Mouse */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 911779CC2F0A212F00E040C6 /* Build configuration list for PBXNativeTarget "Mouse2Mouse" */;
+			buildPhases = (
+				911779BD2F0A212E00E040C6 /* Sources */,
+				911779BE2F0A212E00E040C6 /* Frameworks */,
+				911779BF2F0A212E00E040C6 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				911779C32F0A212E00E040C6 /* Mouse2Mouse */,
+			);
+			name = Mouse2Mouse;
+			packageProductDependencies = (
+			);
+			productName = Mouse2Mouse;
+			productReference = 911779C12F0A212E00E040C6 /* Mouse2Mouse.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		911779B92F0A212E00E040C6 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2610;
+				LastUpgradeCheck = 2610;
+				TargetAttributes = {
+					911779C02F0A212E00E040C6 = {
+						CreatedOnToolsVersion = 26.1.1;
+					};
+				};
+			};
+			buildConfigurationList = 911779BC2F0A212E00E040C6 /* Build configuration list for PBXProject "Mouse2Mouse" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 911779B82F0A212E00E040C6;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 911779C22F0A212E00E040C6 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				911779C02F0A212E00E040C6 /* Mouse2Mouse */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		911779BF2F0A212E00E040C6 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		911779BD2F0A212E00E040C6 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				911779E72F0A252400E040C6 /* ClipboardSync.swift in Sources */,
+				911779E82F0A252400E040C6 /* CryptoManager.swift in Sources */,
+				911779E92F0A252400E040C6 /* FileTransfer.swift in Sources */,
+				911779EA2F0A252400E040C6 /* ConnectionManager.swift in Sources */,
+				911779EB2F0A252400E040C6 /* InputCapture.swift in Sources */,
+				911779EC2F0A252400E040C6 /* WebSocketServer.swift in Sources */,
+				911779ED2F0A252400E040C6 /* FileTransferServer.swift in Sources */,
+				911779EE2F0A252400E040C6 /* PairingView.swift in Sources */,
+				911779EF2F0A252400E040C6 /* Mouse2MouseApp.swift in Sources */,
+				911779F02F0A252400E040C6 /* DiscoveryService.swift in Sources */,
+				911779F12F0A252400E040C6 /* WebSocketClient.swift in Sources */,
+				911779F22F0A252400E040C6 /* ScreenLayoutView.swift in Sources */,
+				911779F32F0A252400E040C6 /* MenuBarView.swift in Sources */,
+				911779F42F0A252400E040C6 /* Protocol.swift in Sources */,
+				911779F52F0A252400E040C6 /* ScreenManager.swift in Sources */,
+				911779F62F0A252400E040C6 /* FileTransferView.swift in Sources */,
+				911779F72F0A252400E040C6 /* PairingManager.swift in Sources */,
+				911779F82F0A252400E040C6 /* InputReceiver.swift in Sources */,
+				911779F92F0A252400E040C6 /* PermissionManager.swift in Sources */,
+				911779FA2F0A252400E040C6 /* InputTransmitter.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		911779CA2F0A212F00E040C6 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = DHU8C4N287;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.1;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		911779CB2F0A212F00E040C6 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = DHU8C4N287;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.1;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		911779CD2F0A212F00E040C6 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = Mouse2Mouse.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = DHU8C4N287;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 15.6;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = Mutafika.Mouse2Mouse;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				REGISTER_APP_GROUPS = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = macosx;
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		911779CE2F0A212F00E040C6 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = Mouse2Mouse.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = DHU8C4N287;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 15.6;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = Mutafika.Mouse2Mouse;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				REGISTER_APP_GROUPS = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = macosx;
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		911779BC2F0A212E00E040C6 /* Build configuration list for PBXProject "Mouse2Mouse" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				911779CA2F0A212F00E040C6 /* Debug */,
+				911779CB2F0A212F00E040C6 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		911779CC2F0A212F00E040C6 /* Build configuration list for PBXNativeTarget "Mouse2Mouse" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				911779CD2F0A212F00E040C6 /* Debug */,
+				911779CE2F0A212F00E040C6 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 911779B92F0A212E00E040C6 /* Project object */;
+}
