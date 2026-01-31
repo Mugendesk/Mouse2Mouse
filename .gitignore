@@ -1,0 +1,15 @@
+# Xcode
+*.xcuserstate
+*.xccheckout
+*.xcscmblueprint
+xcuserdata/
+DerivedData/
+build/
+
+# macOS
+.DS_Store
+*.swp
+*~
+
+# Claude Code
+.claude/
