@@ -24,6 +24,7 @@ enum MessageType: String, Codable {
     case fileRequest = "file_request"
     case fileData = "file_data"
     case fileComplete = "file_complete"
+    case roleChange = "role_change"  // 親子役割変更通知
 }
 
 // MARK: - Base Message
@@ -356,6 +357,28 @@ struct FileCompleteMessage: Codable {
     init(transferId: String, success: Bool) {
         self.transferId = transferId
         self.success = success
+        self.timestamp = Date().timeIntervalSince1970
+    }
+}
+
+// MARK: - Role Change Message
+
+struct RoleChangeMessage: Codable {
+    let type: String = "role_change"
+    let role: String  // "host" or "client"
+    let deviceId: String
+    let timestamp: Double
+
+    enum CodingKeys: String, CodingKey {
+        case type
+        case role
+        case deviceId = "device_id"
+        case timestamp
+    }
+
+    init(role: String, deviceId: String) {
+        self.role = role
+        self.deviceId = deviceId
         self.timestamp = Date().timeIntervalSince1970
     }
 }

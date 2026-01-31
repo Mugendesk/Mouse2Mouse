@@ -82,6 +82,9 @@ struct MenuBarView: View {
                 }
             }
 
+            // 親子役割切り替え
+            roleToggleSection
+
             if let info = discoveryService.localDeviceInfo {
                 HStack {
                     Text("画面: \(info.screenWidth) × \(info.screenHeight)")
@@ -98,6 +101,31 @@ struct MenuBarView: View {
         }
         .padding(.horizontal)
         .padding(.vertical, 8)
+    }
+
+    // MARK: - Role Toggle
+
+    private var roleToggleSection: some View {
+        HStack {
+            Image(systemName: screenManager.deviceRole == .host ? "arrow.up.forward.circle.fill" : "arrow.down.backward.circle.fill")
+                .foregroundColor(screenManager.deviceRole == .host ? .blue : .orange)
+
+            Text(screenManager.deviceRole == .host ? "操作元（Host）" : "操作先（Client）")
+                .font(.subheadline)
+
+            Spacer()
+
+            Picker("", selection: Binding(
+                get: { screenManager.deviceRole },
+                set: { screenManager.setRole($0) }
+            )) {
+                Text("Host").tag(ScreenManager.DeviceRole.host)
+                Text("Client").tag(ScreenManager.DeviceRole.client)
+            }
+            .pickerStyle(.segmented)
+            .frame(width: 120)
+        }
+        .padding(.vertical, 4)
     }
 
     // MARK: - Peers List

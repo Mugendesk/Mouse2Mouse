@@ -121,6 +121,12 @@ class InputTransmitter {
     // MARK: - Edge Handling
 
     private func handleEdgeReached(direction: ScreenManager.EdgeDirection, position: CGPoint) {
+        // Clientモードの場合は画面遷移しない
+        guard ScreenManager.shared.deviceRole == .host else {
+            print("[InputTransmitter] Ignoring edge - device is in client mode")
+            return
+        }
+
         print("[InputTransmitter] handleEdgeReached: direction=\(direction), position=\(position)")
 
         // 明示的に EdgeHit? 型を指定してオーバーロードを解決

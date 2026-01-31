@@ -276,6 +276,13 @@ class ConnectionManager: ObservableObject {
                 handleScreenLayout(msg, from: peerId)
             }
 
+        case .roleChange:
+            if let msg = MessageEncoder.shared.decode(RoleChangeMessage.self, from: message) {
+                DispatchQueue.main.async {
+                    ScreenManager.shared.handleRemoteRoleChange(role: msg.role, fromDeviceId: msg.deviceId)
+                }
+            }
+
         case .filePrepare:
             if let msg = MessageEncoder.shared.decode(FilePrepareMessage.self, from: message) {
                 handleFilePrepare(msg, from: peerId)
@@ -442,6 +449,12 @@ class ConnectionManager: ObservableObject {
         case .clipboard:
             if let msg = MessageEncoder.shared.decode(ClipboardMessage.self, from: message) {
                 ClipboardSync.shared.receiveClipboard(format: msg.format, data: msg.data)
+            }
+        case .roleChange:
+            if let msg = MessageEncoder.shared.decode(RoleChangeMessage.self, from: message) {
+                DispatchQueue.main.async {
+                    ScreenManager.shared.handleRemoteRoleChange(role: msg.role, fromDeviceId: msg.deviceId)
+                }
             }
         default:
             break

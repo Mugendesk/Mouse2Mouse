@@ -7,6 +7,16 @@ import Combine
 class ScreenManager: ObservableObject {
     static let shared = ScreenManager()
 
+    // MARK: - Device Role
+
+    /// デバイスの役割
+    /// - host: 入力を送信する側（このMacでマウス/キーボードを操作）
+    /// - client: 入力を受信する側（リモートから操作される）
+    enum DeviceRole: String, Codable {
+        case host   // 親: 入力を送信
+        case client // 子: 入力を受信
+    }
+
     // MARK: - Published Properties
 
     @Published var localScreens: [LocalScreen] = []  // マルチディスプレイ対応
@@ -14,6 +24,7 @@ class ScreenManager: ObservableObject {
     @Published var currentControlDevice: String = "local"
     @Published var isControllingRemote = false
     @Published var transitionSourceScreen: String?  // 遷移元のローカル画面ID
+    @Published var deviceRole: DeviceRole = .host  // デフォルトはホスト（操作元）
 
     // MARK: - Types
 
@@ -95,6 +106,7 @@ class ScreenManager: ObservableObject {
 
     private init() {
         updateScreenInfo()
+        loadRole()
     }
 
     // MARK: - Screen Info
@@ -351,6 +363,77 @@ class ScreenManager: ObservableObject {
         currentControlDevice = "local"
         isControllingRemote = false
         print("Control returned to local")
+    }
+
+    // MARK: - Role Management
+
+    /// 役割を切り替える
+    /// - Parameter role: 新しい役割
+    /// - Parameter notifyPeers: 接続中のピアに通知するか
+    func setRole(_ role: DeviceRole, notifyPeers: Bool = true) {
+        let oldRole = deviceRole
+        deviceRole = role
+        print("[ScreenManager] Role changed: \(oldRole.rawValue) -> \(role.rawValue)")
+
+        // 役割に応じて入力キャプチャの状態を調整
+        if role == .host {
+            // ホスト: 入力をキャプチャして送信する準備
+            print("[ScreenManager] Host mode: Ready to send input")
+        } else {
+            // クライアント: 入力を受信する準備
+            print("[ScreenManager] Client mode: Ready to receive input")
+            // 必ずリモートモードを解除（ローカル操作を可能にする）
+            InputCapture.shared.exitRemoteMode()
+            InputTransmitter.shared.stopTransmitting()
+            returnControlToLocal()
+        }
+
+        // 接続中のピアに通知
+        if notifyPeers {
+            notifyRoleChange(to: role)
+        }
+
+        // 設定を保存
+        saveRole()
+    }
+
+    /// 役割変更を接続中のピアに通知
+    private func notifyRoleChange(to role: DeviceRole) {
+        guard let localInfo = DiscoveryService.shared.localDeviceInfo else { return }
+
+        let message = RoleChangeMessage(
+            role: role.rawValue,
+            deviceId: localInfo.deviceId
+        )
+
+        if let json = MessageEncoder.shared.encode(message) {
+            for peer in DiscoveryService.shared.connectedPeers {
+                DiscoveryService.shared.send(json, to: peer.id)
+            }
+            print("[ScreenManager] Notified \(DiscoveryService.shared.connectedPeers.count) peer(s) of role change")
+        }
+    }
+
+    /// 相手からの役割変更通知を処理
+    func handleRemoteRoleChange(role: String, fromDeviceId: String) {
+        print("[ScreenManager] Remote device \(fromDeviceId) changed role to: \(role)")
+        // 必要に応じてUIを更新（相手がhostになったら自分はclient的な挙動になる可能性）
+        // ただし自動で切り替えず、UIで表示するのみ
+    }
+
+    /// 役割をUserDefaultsに保存
+    func saveRole() {
+        UserDefaults.standard.set(deviceRole.rawValue, forKey: "Mouse2Mouse.DeviceRole")
+        print("[ScreenManager] Role saved: \(deviceRole.rawValue)")
+    }
+
+    /// 役割をUserDefaultsから読み込み
+    func loadRole() {
+        if let roleString = UserDefaults.standard.string(forKey: "Mouse2Mouse.DeviceRole"),
+           let role = DeviceRole(rawValue: roleString) {
+            deviceRole = role
+            print("[ScreenManager] Role loaded: \(role.rawValue)")
+        }
     }
 
     // MARK: - Layout Persistence

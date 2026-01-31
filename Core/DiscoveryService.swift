@@ -169,16 +169,9 @@ class DiscoveryService: ObservableObject {
         }
 
         DispatchQueue.main.async {
-            let oldPeerIds = Set(self.discoveredPeers.map { $0.id })
             self.discoveredPeers = peers
-
-            // 新しいピアを発見したら自動接続
-            for peer in peers {
-                if !oldPeerIds.contains(peer.id) && !self.connectedPeers.contains(where: { $0.id == peer.id }) {
-                    print("[AutoConnect] New peer discovered: \(peer.name), connecting...")
-                    self.connect(to: peer)
-                }
-            }
+            // 自動接続は行わない（手動ペアリング）
+            // ユーザーがMenuBarViewから「接続」ボタンをクリックして接続する
         }
     }
 
@@ -305,6 +298,15 @@ class DiscoveryService: ObservableObject {
                         }
                     }
                 }
+            case .roleChange:
+                let peerId = self?.serverClientMapping[clientId] ?? clientId
+                if let msg = MessageEncoder.shared.decode(RoleChangeMessage.self, from: message) {
+                    print("[DiscoveryService] Received roleChange from \(peerId): \(msg.role)")
+                    DispatchQueue.main.async {
+                        ScreenManager.shared.handleRemoteRoleChange(role: msg.role, fromDeviceId: msg.deviceId)
+                    }
+                }
+
             case .cursorMove, .mouseButton, .scroll, .key, .controlTransfer, .clipboard:
                 // clientIdからpeerIdを取得
                 let peerId = self?.serverClientMapping[clientId] ?? clientId

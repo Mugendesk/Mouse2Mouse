@@ -11,9 +11,20 @@ class InputReceiver {
 
     private init() {}
 
+    // MARK: - Role Check
+
+    /// Hostモードの場合は入力を受け付けない
+    private var shouldReceiveInput: Bool {
+        // Hostモードでも、リモートからの戻りカーソルは受け付ける必要がある
+        // ただし通常の入力操作はClientモードのみ
+        return ScreenManager.shared.deviceRole == .client
+    }
+
     // MARK: - Cursor Movement
 
     func handleCursorMove(x: Double, y: Double) {
+        // 注意: カーソル移動は役割に関係なく処理する
+        // （Hostからの戻り操作のため）
         print("[InputReceiver] handleCursorMove called: (\(x), \(y))")
 
         guard let screen = NSScreen.main else {
