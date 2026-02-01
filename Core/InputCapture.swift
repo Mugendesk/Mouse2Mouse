@@ -38,6 +38,7 @@ class InputCapture: ObservableObject {
         guard !isCapturing else { return }
 
         var eventMask: CGEventMask = 0
+        // マウスイベントのみキャプチャ（キーボードはキャプチャしない = 詰まない）
         eventMask |= (1 << CGEventType.mouseMoved.rawValue)
         eventMask |= (1 << CGEventType.leftMouseDown.rawValue)
         eventMask |= (1 << CGEventType.leftMouseUp.rawValue)
@@ -48,9 +49,10 @@ class InputCapture: ObservableObject {
         eventMask |= (1 << CGEventType.leftMouseDragged.rawValue)
         eventMask |= (1 << CGEventType.rightMouseDragged.rawValue)
         eventMask |= (1 << CGEventType.scrollWheel.rawValue)
-        eventMask |= (1 << CGEventType.keyDown.rawValue)
-        eventMask |= (1 << CGEventType.keyUp.rawValue)
-        eventMask |= (1 << CGEventType.flagsChanged.rawValue)
+        // キーボードイベントはキャプチャしない（ローカルで常に動作）
+        // eventMask |= (1 << CGEventType.keyDown.rawValue)
+        // eventMask |= (1 << CGEventType.keyUp.rawValue)
+        // eventMask |= (1 << CGEventType.flagsChanged.rawValue)
 
         // 自身へのポインタをuserInfoとして渡す
         let userInfo = Unmanaged.passUnretained(self).toOpaque()
