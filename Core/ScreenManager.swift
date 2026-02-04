@@ -378,14 +378,15 @@ class ScreenManager: ObservableObject {
         // 役割に応じて入力キャプチャの状態を調整
         if role == .host {
             // ホスト: 入力をキャプチャして送信する準備
-            print("[ScreenManager] Host mode: Ready to send input")
+            InputCapture.shared.startCapturing()
+            print("[ScreenManager] Host mode: Input capture enabled")
         } else {
-            // クライアント: 入力を受信する準備
-            print("[ScreenManager] Client mode: Ready to receive input")
-            // 必ずリモートモードを解除（ローカル操作を可能にする）
+            // クライアント: イベントタップを完全に無効化（絶対に詰まない）
             InputCapture.shared.exitRemoteMode()
+            InputCapture.shared.stopCapturing()
             InputTransmitter.shared.stopTransmitting()
             returnControlToLocal()
+            print("[ScreenManager] Client mode: Input capture disabled")
         }
 
         // 接続中のピアに通知

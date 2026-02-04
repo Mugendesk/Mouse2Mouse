@@ -270,6 +270,8 @@ struct MenuBarView: View {
 struct PeerRow: View {
     let peer: DiscoveryService.Peer
     @EnvironmentObject var discoveryService: DiscoveryService
+    @EnvironmentObject var screenManager: ScreenManager
+    @State private var showingRoleDialog = false
 
     var body: some View {
         HStack {
@@ -293,13 +295,26 @@ struct PeerRow: View {
                 if peer.isConnected {
                     discoveryService.disconnect(from: peer)
                 } else {
-                    discoveryService.connect(to: peer)
+                    showingRoleDialog = true
                 }
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
         }
         .padding(.vertical, 4)
+        .alert("接続設定", isPresented: $showingRoleDialog) {
+            Button("このMacが操作元（Host）") {
+                screenManager.setRole(.host)
+                discoveryService.connect(to: peer)
+            }
+            Button("このMacが操作先（Client）") {
+                screenManager.setRole(.client)
+                discoveryService.connect(to: peer)
+            }
+            Button("キャンセル", role: .cancel) {}
+        } message: {
+            Text("\(peer.name) と接続します。\nこのMacの役割を選択してください。")
+        }
     }
 }
 
