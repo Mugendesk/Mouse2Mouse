@@ -62,12 +62,11 @@ class DiscoveryService: ObservableObject {
         let hostname = Host.current().localizedName ?? "Mac"
         let screen = NSScreen.main
 
-        // 実際のピクセルサイズを取得（Retina対応）
-        let backingScale = screen?.backingScaleFactor ?? 1.0
-        let width = Int((screen?.frame.width ?? 1920) * backingScale)
-        let height = Int((screen?.frame.height ?? 1080) * backingScale)
+        // ポイント単位のサイズを使用（InputCaptureのデルタがポイント単位のため統一）
+        let width = Int(screen?.frame.width ?? 1920)
+        let height = Int(screen?.frame.height ?? 1080)
 
-        print("[DeviceInfo] Screen size - Points: \(Int(screen?.frame.width ?? 0))x\(Int(screen?.frame.height ?? 0)), Scale: \(backingScale), Pixels: \(width)x\(height)")
+        print("[DeviceInfo] Screen size - Points: \(width)x\(height)")
 
         localDeviceInfo = DeviceInfo(
             deviceId: deviceId,

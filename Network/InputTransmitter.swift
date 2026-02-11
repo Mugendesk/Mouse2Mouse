@@ -148,7 +148,7 @@ class InputTransmitter {
         let message = ControlTransferMessage(to: targetScreen.id, entryX: entryX, entryY: entryY)
 
         if let json = encoder.encode(message) {
-            ConnectionManager.shared.send(json, to: targetScreen.id)
+            DiscoveryService.shared.send(json, to: targetScreen.id)
         }
 
         // リモートモードに入る（エントリーポイントを渡す）
@@ -160,7 +160,7 @@ class InputTransmitter {
 
     private func sendToTarget(_ message: String) {
         if let peerId = targetPeerId {
-            ConnectionManager.shared.send(message, to: peerId)
+            DiscoveryService.shared.send(message, to: peerId)
         }
     }
 
