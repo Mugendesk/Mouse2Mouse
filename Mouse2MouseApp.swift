@@ -83,18 +83,25 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // 画面情報初期化
         screenManager.updateScreenInfo()
 
-        // イベント傍受開始
-        inputCapture.startCapturing()
+        // Hostモード時のみイベント傍受開始（listenOnlyで安全）
+        if screenManager.deviceRole == .host {
+            inputCapture.startCapturing()
+        }
 
         // クリップボード同期開始
         ClipboardSync.shared.startMonitoring()
 
-        print("Mouse2Mouse started")
+        print("Mouse2Mouse started (role: \(screenManager.deviceRole.rawValue))")
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        discoveryService.stop()
+        // リモートモードを解除（カーソル固定を確実に解除）
+        inputCapture.exitRemoteMode()
         inputCapture.stopCapturing()
+        inputTransmitter.stopTransmitting()
+        discoveryService.stop()
         ClipboardSync.shared.stopMonitoring()
+        // カーソル関連付けを確実に復元（フェイルセーフ）
+        CGAssociateMouseAndMouseCursorPosition(1)
     }
 }

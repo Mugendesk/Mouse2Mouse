@@ -1,4 +1,5 @@
 import SwiftUI
+import CoreGraphics
 
 /// メニューバーポップオーバーUI
 struct MenuBarView: View {
@@ -240,6 +241,10 @@ struct MenuBarView: View {
             Spacer()
 
             Button("終了") {
+                // 入力系を確実にクリーンアップしてから終了
+                InputCapture.shared.exitRemoteMode()
+                InputCapture.shared.stopCapturing()
+                CGAssociateMouseAndMouseCursorPosition(1)
                 NSApp.terminate(nil)
             }
             .buttonStyle(.plain)
@@ -255,8 +260,15 @@ struct MenuBarView: View {
     private func toggleService() {
         if discoveryService.isRunning {
             discoveryService.stop()
+            InputCapture.shared.exitRemoteMode()
+            InputCapture.shared.stopCapturing()
+            InputTransmitter.shared.stopTransmitting()
+            screenManager.returnControlToLocal()
         } else {
             discoveryService.start()
+            if screenManager.deviceRole == .host {
+                InputCapture.shared.startCapturing()
+            }
         }
     }
 
@@ -322,6 +334,7 @@ struct PeerRow: View {
 
 struct ConnectedPeerRow: View {
     let peer: DiscoveryService.Peer
+    @EnvironmentObject var discoveryService: DiscoveryService
     @EnvironmentObject var screenManager: ScreenManager
 
     var body: some View {
@@ -344,6 +357,13 @@ struct ConnectedPeerRow: View {
                     .background(Color.secondary.opacity(0.1))
                     .cornerRadius(4)
             }
+
+            Button("切断") {
+                discoveryService.disconnect(from: peer)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .tint(.red)
         }
         .padding(.vertical, 4)
     }
