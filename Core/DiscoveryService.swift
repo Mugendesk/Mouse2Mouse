@@ -114,6 +114,8 @@ class DiscoveryService: ObservableObject {
 
         ConnectionManager.shared.disconnectAll()
         connectedPeers.removeAll()
+        serverClientMapping.removeAll()
+        ScreenManager.shared.remoteScreens.removeAll()
 
         isRunning = false
         print("DiscoveryService stopped")
@@ -219,6 +221,24 @@ class DiscoveryService: ObservableObject {
         webSocketServer?.onClientConnected = { [weak self] clientId in
             print("[WebSocketServer] Client connected: \(clientId)")
             print("[WebSocketServer] Waiting for deviceInfo from client...")
+        }
+
+        webSocketServer?.onClientDisconnected = { [weak self] clientId in
+            guard let self = self else { return }
+            print("[WebSocketServer] Client disconnected: \(clientId)")
+            if let peerId = self.serverClientMapping[clientId] {
+                DispatchQueue.main.async {
+                    // リモートモード中なら解除
+                    if ScreenManager.shared.isControllingRemote {
+                        InputTransmitter.shared.stopTransmitting()
+                        ScreenManager.shared.returnControlToLocal()
+                    }
+                    ScreenManager.shared.removeRemoteScreen(deviceId: peerId)
+                    self.connectedPeers.removeAll { $0.id == peerId }
+                    self.serverClientMapping.removeValue(forKey: clientId)
+                    print("[WebSocketServer] Cleaned up peer: \(peerId)")
+                }
+            }
         }
 
         webSocketServer?.onMessageReceived = { [weak self] clientId, message in

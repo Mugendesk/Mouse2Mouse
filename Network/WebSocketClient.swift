@@ -216,11 +216,22 @@ class ConnectionManager: ObservableObject {
     }
 
     func disconnect(from peerId: String) {
+        // リモートモード中なら先に解除（カーソル固定防止）
+        if ScreenManager.shared.isControllingRemote {
+            InputTransmitter.shared.stopTransmitting()
+            ScreenManager.shared.returnControlToLocal()
+        }
         activeConnections[peerId]?.disconnect()
         activeConnections.removeValue(forKey: peerId)
+        ScreenManager.shared.removeRemoteScreen(deviceId: peerId)
     }
 
     func disconnectAll() {
+        // リモートモード中なら先に解除
+        if ScreenManager.shared.isControllingRemote {
+            InputTransmitter.shared.stopTransmitting()
+            ScreenManager.shared.returnControlToLocal()
+        }
         for client in activeConnections.values {
             client.disconnect()
         }

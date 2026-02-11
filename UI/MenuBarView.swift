@@ -241,10 +241,12 @@ struct MenuBarView: View {
             Spacer()
 
             Button("終了") {
-                // 入力系を確実にクリーンアップしてから終了
+                // カーソル固定を最初に解除してから全クリーンアップ
+                CGAssociateMouseAndMouseCursorPosition(1)
+                InputTransmitter.shared.stopTransmitting()
                 InputCapture.shared.exitRemoteMode()
                 InputCapture.shared.stopCapturing()
-                CGAssociateMouseAndMouseCursorPosition(1)
+                DiscoveryService.shared.stop()
                 NSApp.terminate(nil)
             }
             .buttonStyle(.plain)
@@ -259,11 +261,13 @@ struct MenuBarView: View {
 
     private func toggleService() {
         if discoveryService.isRunning {
-            discoveryService.stop()
+            // カーソル固定を最初に解除（フェイルセーフ）
+            CGAssociateMouseAndMouseCursorPosition(1)
+            InputTransmitter.shared.stopTransmitting()
             InputCapture.shared.exitRemoteMode()
             InputCapture.shared.stopCapturing()
-            InputTransmitter.shared.stopTransmitting()
             screenManager.returnControlToLocal()
+            discoveryService.stop()
         } else {
             discoveryService.start()
             if screenManager.deviceRole == .host {
