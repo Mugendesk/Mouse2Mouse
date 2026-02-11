@@ -28,6 +28,7 @@ class InputCapture: ObservableObject {
     private var lastMousePosition: CGPoint = .zero
     private var virtualCursorPosition: CGPoint = .zero  // リモートモード用の仮想カーソル位置
     private var useDefaultTap = false  // true: イベント消費可能（リモートモード用）、false: listenOnly（安全）
+    private var edgeCooldownUntil: Date = .distantPast  // エッジ検出クールダウン（バウンスバック防止）
 
     // MARK: - Lifecycle
 
@@ -218,22 +219,39 @@ class InputCapture: ObservableObject {
             // リモート画面のサイズを取得
             if let targetId = InputTransmitter.shared.currentTargetPeerId,
                let remoteScreen = ScreenManager.shared.remoteScreens.first(where: { $0.id == targetId }) {
-                // 画面端に到達したらローカルに戻る
-                if virtualCursorPosition.x < 0 {
-                    print("[InputCapture] Left edge reached, returning to local")
+                // リモート画面の接続方向に基づいて戻り判定
+                let shouldReturn: Bool
+                switch remoteScreen.attachedEdge {
+                case .right:
+                    shouldReturn = virtualCursorPosition.x < 0
+                case .left:
+                    shouldReturn = virtualCursorPosition.x > remoteScreen.width
+                case .bottom:
+                    shouldReturn = virtualCursorPosition.y < 0
+                case .top:
+                    shouldReturn = virtualCursorPosition.y > remoteScreen.height
+                }
+
+                if shouldReturn {
+                    print("[InputCapture] Edge reached, returning to local (edge: \(remoteScreen.attachedEdge))")
+                    edgeCooldownUntil = Date().addingTimeInterval(0.5)
                     exitRemoteMode()
                     ScreenManager.shared.returnControlToLocal()
                     InputTransmitter.shared.stopTransmitting()
                     return
                 }
 
-                // 上下左右の制限
-                virtualCursorPosition.x = min(virtualCursorPosition.x, remoteScreen.width)
+                // 画面範囲内にクランプ
+                virtualCursorPosition.x = max(0, min(virtualCursorPosition.x, remoteScreen.width))
                 virtualCursorPosition.y = max(0, min(virtualCursorPosition.y, remoteScreen.height))
             } else {
-                // リモート画面が見つからない場合は基本的な制限のみ
-                virtualCursorPosition.x = max(0, virtualCursorPosition.x)
-                virtualCursorPosition.y = max(0, virtualCursorPosition.y)
+                // リモート画面が見つからない場合は即座にローカルに戻る
+                print("[InputCapture] Remote screen not found, returning to local")
+                edgeCooldownUntil = Date().addingTimeInterval(0.5)
+                exitRemoteMode()
+                ScreenManager.shared.returnControlToLocal()
+                InputTransmitter.shared.stopTransmitting()
+                return
             }
 
             onCursorMove?(virtualCursorPosition)
@@ -243,6 +261,9 @@ class InputCapture: ObservableObject {
             lastMousePosition = location
 
             onCursorMove?(location)
+
+            // クールダウン中はエッジ検出しない（バウンスバック防止）
+            guard Date() > edgeCooldownUntil else { return }
 
             // 画面端チェック
             let (direction, _) = ScreenManager.shared.checkEdgeReached(cursorPosition: location)

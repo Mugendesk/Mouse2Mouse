@@ -94,6 +94,7 @@ class InputTransmitter {
         let message = MouseButtonMessage(button: button, state: isDown ? .down : .up)
 
         if let json = encoder.encode(message) {
+            print("[InputTransmitter] Sending mouseButton: button=\(button), isDown=\(isDown)")
             sendToTarget(json)
         }
     }

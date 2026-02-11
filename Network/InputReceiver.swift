@@ -74,6 +74,8 @@ class InputReceiver {
     // MARK: - Mouse Button
 
     func handleMouseButton(button: Int, isDown: Bool) {
+        print("[InputReceiver] handleMouseButton: button=\(button), isDown=\(isDown)")
+
         let mouseButton: CGMouseButton
         let downType: CGEventType
         let upType: CGEventType
@@ -97,10 +99,8 @@ class InputReceiver {
 
         let eventType = isDown ? downType : upType
 
-        // virtualCursorPositionはNSScreen座標(左下原点)で保存されている
-        // CGEventは左上原点なので、現在のマウス位置を取得して使用
-        guard let currentPosition = CGEvent(source: nil)?.location else { return }
-        let position = currentPosition
+        // 現在のカーソル位置でクリックイベントを生成
+        let position = virtualCursorPosition
 
         let event = CGEvent(
             mouseEventSource: nil,
@@ -109,6 +109,7 @@ class InputReceiver {
             mouseButton: mouseButton
         )
         event?.post(tap: .cghidEventTap)
+        print("[InputReceiver] Posted mouse event at (\(Int(position.x)), \(Int(position.y)))")
     }
 
     // MARK: - Scroll

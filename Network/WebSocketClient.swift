@@ -320,13 +320,12 @@ class ConnectionManager: ObservableObject {
     }
 
     private func handleControlTransfer(_ message: ControlTransferMessage) {
-        if message.to == DiscoveryService.shared.localDeviceInfo?.deviceId {
-            // 自分宛ての制御権移譲
-            let position = ScreenManager.shared.denormalizePosition(x: message.entryX, y: message.entryY)
-            InputCapture.shared.moveCursor(to: position)
-            InputCapture.shared.exitRemoteMode()
-            ScreenManager.shared.returnControlToLocal()
-        }
+        // 受信した時点で自分宛て（WebSocket接続経由で直接受信するため）
+        print("[ConnectionManager] Received controlTransfer: to=\(message.to), entry=(\(message.entryX), \(message.entryY))")
+        let position = ScreenManager.shared.denormalizePosition(x: message.entryX, y: message.entryY)
+        InputCapture.shared.moveCursor(to: position)
+        InputCapture.shared.exitRemoteMode()
+        ScreenManager.shared.returnControlToLocal()
     }
 
     private func handleDeviceInfo(_ message: DeviceInfoMessage, from peerId: String) {
@@ -450,12 +449,11 @@ class ConnectionManager: ObservableObject {
             }
         case .controlTransfer:
             if let msg = MessageEncoder.shared.decode(ControlTransferMessage.self, from: message) {
-                if msg.to == DiscoveryService.shared.localDeviceInfo?.deviceId {
-                    let position = ScreenManager.shared.denormalizePosition(x: msg.entryX, y: msg.entryY)
-                    InputCapture.shared.moveCursor(to: position)
-                    InputCapture.shared.exitRemoteMode()
-                    ScreenManager.shared.returnControlToLocal()
-                }
+                print("[ConnectionManager] Received controlTransfer (incoming): to=\(msg.to)")
+                let position = ScreenManager.shared.denormalizePosition(x: msg.entryX, y: msg.entryY)
+                InputCapture.shared.moveCursor(to: position)
+                InputCapture.shared.exitRemoteMode()
+                ScreenManager.shared.returnControlToLocal()
             }
         case .clipboard:
             if let msg = MessageEncoder.shared.decode(ClipboardMessage.self, from: message) {
