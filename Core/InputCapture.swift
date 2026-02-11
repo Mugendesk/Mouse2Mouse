@@ -27,6 +27,7 @@ class InputCapture: ObservableObject {
     private var runLoopSource: CFRunLoopSource?
     private var lastMousePosition: CGPoint = .zero
     private var virtualCursorPosition: CGPoint = .zero  // リモートモード用の仮想カーソル位置
+    private var useDefaultTap = false  // true: イベント消費可能（リモートモード用）、false: listenOnly（安全）
 
     // MARK: - Lifecycle
 
@@ -60,7 +61,7 @@ class InputCapture: ObservableObject {
         guard let tap = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
             place: .headInsertEventTap,
-            options: .defaultTap,  // リモートモード時にイベントを消費するため
+            options: useDefaultTap ? .defaultTap : .listenOnly,  // リモートモード時のみイベント消費可能
             eventsOfInterest: eventMask,
             callback: { proxy, type, event, userInfo in
                 guard let userInfo = userInfo else {
@@ -113,6 +114,8 @@ class InputCapture: ObservableObject {
     func enterRemoteMode(entryPoint: CGPoint = .zero) {
         isRemoteMode = true
         virtualCursorPosition = entryPoint
+        // イベントを消費できるようにdefaultTapで再作成
+        restartCapturing(withDefaultTap: true)
         // カーソルを固定
         CGAssociateMouseAndMouseCursorPosition(0)
         print("Entered remote mode at \(entryPoint)")
@@ -120,10 +123,25 @@ class InputCapture: ObservableObject {
 
     /// リモートモードを終了
     func exitRemoteMode() {
+        guard isRemoteMode else { return }
         isRemoteMode = false
         // カーソル固定を解除
         CGAssociateMouseAndMouseCursorPosition(1)
+        // listenOnlyに戻す（安全）
+        restartCapturing(withDefaultTap: false)
         print("Exited remote mode")
+    }
+
+    /// タップを再作成（listenOnly <-> defaultTap の切り替え）
+    private func restartCapturing(withDefaultTap: Bool) {
+        let wasCapturing = isCapturing
+        if wasCapturing {
+            stopCapturing()
+        }
+        useDefaultTap = withDefaultTap
+        if wasCapturing {
+            startCapturing()
+        }
     }
 
     // MARK: - Event Handling
