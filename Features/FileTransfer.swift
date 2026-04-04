@@ -1,6 +1,7 @@
 import Foundation
 import Combine
 import Cocoa
+import UserNotifications
 
 /// ファイル転送
 /// LocalSend互換REST APIでファイルを転送
@@ -52,6 +53,8 @@ class FileTransfer: ObservableObject {
         return mouse2mouse
     }()
 
+    private let maxFileSize: Int64 = 500 * 1024 * 1024  // 500MB
+
     // MARK: - Private Properties
 
     private var pendingRequests: [String: FileRequest] = [:]
@@ -78,7 +81,7 @@ class FileTransfer: ObservableObject {
         let fileSize = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64) ?? 0
         let transferId = UUID().uuidString
 
-        var transfer = Transfer(
+        let transfer = Transfer(
             id: transferId,
             fileName: url.lastPathComponent,
             fileSize: fileSize,
@@ -94,33 +97,18 @@ class FileTransfer: ObservableObject {
     }
 
     private func prepareUpload(url: URL, transferId: String, to peerId: String) {
-        guard let client = ConnectionManager.shared.activeConnections[peerId] else { return }
+        let fileSize = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64) ?? 0
 
-        // LocalSend prepare-upload リクエスト
-        let prepareRequest: [String: Any] = [
-            "info": [
-                "alias": DiscoveryService.shared.localDeviceInfo?.hostname ?? "Mac",
-                "version": "2.0",
-                "deviceType": "desktop"
-            ],
-            "files": [
-                [
-                    "id": transferId,
-                    "fileName": url.lastPathComponent,
-                    "size": (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64) ?? 0,
-                    "fileType": url.pathExtension
-                ]
-            ]
-        ]
+        let prepareMsg = FilePrepareMessage(
+            transferId: transferId,
+            fileName: url.lastPathComponent,
+            fileSize: fileSize,
+            fileType: url.pathExtension
+        )
 
-        guard let jsonData = try? JSONSerialization.data(withJSONObject: prepareRequest),
-              let jsonString = String(data: jsonData, encoding: .utf8) else { return }
-
-        let message = """
-        {"type":"file_prepare","data":\(jsonString)}
-        """
-
-        client.send(message)
+        if let json = MessageEncoder.shared.encode(prepareMsg) {
+            DiscoveryService.shared.send(json, to: peerId)
+        }
     }
 
     /// ファイル転送を続行
@@ -139,17 +127,14 @@ class FileTransfer: ObservableObject {
 
     /// ファイルをリクエスト
     func requestFile(remotePath: String) {
-        // 全ての接続先にリクエスト
-        let request: [String: Any] = [
-            "type": "file_request",
-            "path": remotePath,
-            "requestId": UUID().uuidString
-        ]
+        let requestMsg = FileRequestMessage(
+            path: remotePath,
+            requestId: UUID().uuidString
+        )
 
-        guard let jsonData = try? JSONSerialization.data(withJSONObject: request),
-              let jsonString = String(data: jsonData, encoding: .utf8) else { return }
-
-        ConnectionManager.shared.broadcast(jsonString)
+        if let json = MessageEncoder.shared.encode(requestMsg) {
+            DiscoveryService.shared.broadcastToAllPeers(json)
+        }
     }
 
     /// ファイルを受信
@@ -223,12 +208,17 @@ class FileTransfer: ObservableObject {
     // MARK: - Notifications
 
     private func showNotification(title: String, body: String) {
-        let notification = NSUserNotification()
-        notification.title = title
-        notification.informativeText = body
-        notification.soundName = NSUserNotificationDefaultSoundName
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = body
+        content.sound = .default
 
-        NSUserNotificationCenter.default.deliver(notification)
+        let request = UNNotificationRequest(
+            identifier: UUID().uuidString,
+            content: content,
+            trigger: nil
+        )
+        UNUserNotificationCenter.current().add(request)
     }
 
     // MARK: - Receive File (Protocol-based)
@@ -246,6 +236,12 @@ class FileTransfer: ObservableObject {
 
     /// 受信準備
     func prepareReceive(transferId: String, fileName: String, fileSize: Int64, from peerId: String) {
+        // ファイルサイズ上限チェック
+        guard fileSize <= maxFileSize else {
+            print("[FileTransfer] File too large: \(fileSize) bytes (max: \(maxFileSize))")
+            return
+        }
+
         let receiving = ReceivingFile(
             transferId: transferId,
             fileName: fileName,
@@ -292,12 +288,18 @@ class FileTransfer: ObservableObject {
     }
 
     private func assembleFile(_ receiving: ReceivingFile) {
-        // チャンクを順番に結合
+        // 全チャンクが揃っているか検証
         var fileData = Data()
         for i in 0..<receiving.totalChunks {
-            if let chunk = receiving.chunks[i] {
-                fileData.append(chunk)
+            guard let chunk = receiving.chunks[i] else {
+                print("[FileTransfer] Missing chunk \(i)/\(receiving.totalChunks), aborting assembly")
+                receivingFiles.removeValue(forKey: receiving.transferId)
+                DispatchQueue.main.async {
+                    self.completeTransfer(transferId: receiving.transferId, success: false)
+                }
+                return
             }
+            fileData.append(chunk)
         }
 
         // ファイル保存
@@ -307,7 +309,7 @@ class FileTransfer: ObservableObject {
         // 完了メッセージ送信
         let completeMsg = FileCompleteMessage(transferId: receiving.transferId, success: true)
         if let json = MessageEncoder.shared.encode(completeMsg) {
-            ConnectionManager.shared.send(json, to: receiving.peerId)
+            DiscoveryService.shared.send(json, to: receiving.peerId)
         }
     }
 
@@ -322,15 +324,21 @@ class FileTransfer: ObservableObject {
         }
     }
 
-    /// ファイルリクエスト処理
+    /// ファイルリクエスト処理（パストラバーサル防止付き）
     func handleFileRequest(path: String, requestId: String, to peerId: String) {
-        let url = URL(fileURLWithPath: path)
-        guard FileManager.default.fileExists(atPath: path) else {
-            print("[FileTransfer] File not found: \(path)")
+        // セキュリティ: ダウンロードディレクトリ配下のみ許可
+        let resolvedPath = URL(fileURLWithPath: path).standardizedFileURL.path
+        guard resolvedPath.hasPrefix(downloadDirectory.path) else {
+            print("[FileTransfer] Blocked path traversal attempt: \(path)")
             return
         }
 
-        // ファイルを送信
+        guard FileManager.default.fileExists(atPath: resolvedPath) else {
+            print("[FileTransfer] File not found: \(resolvedPath)")
+            return
+        }
+
+        let url = URL(fileURLWithPath: resolvedPath)
         sendFileWithChunks(url: url, transferId: requestId, to: peerId)
     }
 
@@ -349,7 +357,7 @@ class FileTransfer: ObservableObject {
             fileType: url.pathExtension
         )
         if let json = MessageEncoder.shared.encode(prepareMsg) {
-            ConnectionManager.shared.send(json, to: peerId)
+            DiscoveryService.shared.send(json, to: peerId)
         }
 
         // チャンク送信
@@ -366,7 +374,7 @@ class FileTransfer: ObservableObject {
                 data: base64
             )
             if let json = MessageEncoder.shared.encode(dataMsg) {
-                ConnectionManager.shared.send(json, to: peerId)
+                DiscoveryService.shared.send(json, to: peerId)
             }
         }
     }

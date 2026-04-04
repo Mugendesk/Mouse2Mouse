@@ -8,9 +8,11 @@ class WebSocketClient {
     private var webSocketTask: URLSessionWebSocketTask?
     private var session: URLSession?
     private var pingTimer: Timer?
+    private var connectionTimer: Timer?
 
     private(set) var isConnected = false
     let serverURL: URL
+    private let connectionTimeout: TimeInterval = 10.0
 
     // Callbacks
     var onConnected: (() -> Void)?
@@ -25,7 +27,8 @@ class WebSocketClient {
 
     func connect() {
         let config = URLSessionConfiguration.default
-        config.waitsForConnectivity = true
+        config.waitsForConnectivity = false
+        config.timeoutIntervalForRequest = connectionTimeout
 
         session = URLSession(configuration: config)
         webSocketTask = session?.webSocketTask(with: serverURL)
@@ -37,22 +40,35 @@ class WebSocketClient {
         // 最初のメッセージ受信で接続確立を確認
         receiveMessage()
 
+        // 接続タイムアウト
+        connectionTimer = Timer.scheduledTimer(withTimeInterval: connectionTimeout, repeats: false) { [weak self] _ in
+            guard let self = self, !self.isConnected else { return }
+            print("WebSocket connection timed out: \(self.serverURL)")
+            self.disconnect()
+        }
+
         // 接続確認用ping
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
             self?.webSocketTask?.sendPing { error in
-                if error == nil {
-                    self?.isConnected = true
-                    self?.onConnected?()
-                    self?.startPing()
-                    print("WebSocket connected successfully")
-                } else {
-                    print("WebSocket connection failed: \(String(describing: error))")
+                DispatchQueue.main.async {
+                    if error == nil {
+                        self?.connectionTimer?.invalidate()
+                        self?.connectionTimer = nil
+                        self?.isConnected = true
+                        self?.onConnected?()
+                        self?.startPing()
+                        print("WebSocket connected successfully")
+                    } else {
+                        print("WebSocket connection failed: \(String(describing: error))")
+                    }
                 }
             }
         }
     }
 
     func disconnect() {
+        connectionTimer?.invalidate()
+        connectionTimer = nil
         stopPing()
         webSocketTask?.cancel(with: .goingAway, reason: nil)
         webSocketTask = nil
@@ -129,11 +145,21 @@ class WebSocketClient {
     }
 
     private func ping() {
+        let pingTimeout = DispatchWorkItem { [weak self] in
+            guard let self = self, self.isConnected else { return }
+            print("Ping timeout, disconnecting")
+            self.disconnect()
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 10, execute: pingTimeout)
+
         webSocketTask?.sendPing { [weak self] error in
+            pingTimeout.cancel()
             if let error = error {
                 print("Ping failed: \(error)")
-                self?.isConnected = false
-                self?.onDisconnected?(error)
+                DispatchQueue.main.async {
+                    self?.isConnected = false
+                    self?.onDisconnected?(error)
+                }
             }
         }
     }
@@ -154,12 +180,79 @@ class ConnectionManager: ObservableObject {
     func connect(to peer: DiscoveryService.Peer) {
         guard activeConnections[peer.id] == nil else { return }
 
-        // エンドポイントからURLを構築
-        guard let url = buildWebSocketURL(from: peer.endpoint) else {
-            print("Failed to build WebSocket URL for \(peer.name)")
-            return
+        // Bonjourサービスエンドポイントを解決してからWebSocket接続
+        resolveEndpoint(peer.endpoint) { [weak self] url in
+            guard let self = self, let url = url else {
+                print("Failed to resolve endpoint for \(peer.name)")
+                return
+            }
+            self.connectWebSocket(url: url, peer: peer)
         }
+    }
 
+    /// NWEndpointをWebSocket URLに解決（Bonjour名にスペース等が含まれていても安全）
+    private func resolveEndpoint(_ endpoint: NWEndpoint, completion: @escaping (URL?) -> Void) {
+        switch endpoint {
+        case .hostPort(let host, let port):
+            var components = URLComponents()
+            components.scheme = "ws"
+            components.host = "\(host)"
+            components.port = Int(port.rawValue)
+            completion(components.url)
+
+        case .service:
+            // NWConnectionでBonjourサービスをIPアドレスに解決
+            let connection = NWConnection(to: endpoint, using: .tcp)
+            var completed = false
+
+            connection.stateUpdateHandler = { state in
+                guard !completed else { return }
+                switch state {
+                case .ready:
+                    completed = true
+                    if let resolved = connection.currentPath?.remoteEndpoint,
+                       case .hostPort(let host, let port) = resolved {
+                        var components = URLComponents()
+                        components.scheme = "ws"
+                        components.host = "\(host)"
+                        components.port = Int(port.rawValue)
+                        print("[ConnectionManager] Resolved endpoint: \(components.host ?? ""):\(components.port ?? 0)")
+                        completion(components.url)
+                    } else {
+                        completion(nil)
+                    }
+                    connection.cancel()
+                case .failed:
+                    completed = true
+                    completion(nil)
+                    connection.cancel()
+                case .cancelled:
+                    if !completed {
+                        completed = true
+                        completion(nil)
+                    }
+                default:
+                    break
+                }
+            }
+
+            connection.start(queue: .main)
+
+            // 解決タイムアウト
+            DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
+                guard !completed else { return }
+                completed = true
+                print("[ConnectionManager] Endpoint resolution timed out")
+                connection.cancel()
+                completion(nil)
+            }
+
+        default:
+            completion(nil)
+        }
+    }
+
+    private func connectWebSocket(url: URL, peer: DiscoveryService.Peer) {
         let client = WebSocketClient(url: url)
 
         client.onConnected = { [weak self] in
@@ -176,14 +269,15 @@ class ConnectionManager: ObservableObject {
                     DiscoveryService.shared.connectedPeers.append(connectedPeer)
                 }
 
-                // 接続後に自分のdeviceInfoを送信
+                // 接続後に自分のdeviceInfoを送信（公開鍵付き）
                 if let info = DiscoveryService.shared.localDeviceInfo {
                     let message = DeviceInfoMessage(
                         deviceId: info.deviceId,
                         hostname: info.hostname,
                         deviceType: .mac,
                         screenWidth: info.screenWidth,
-                        screenHeight: info.screenHeight
+                        screenHeight: info.screenHeight,
+                        publicKey: CryptoManager.shared.publicKeyBase64
                     )
                     if let json = MessageEncoder.shared.encode(message) {
                         client.send(json)
@@ -209,7 +303,10 @@ class ConnectionManager: ObservableObject {
         }
 
         client.onMessage = { [weak self] message in
-            self?.handleMessage(message, from: peer.id)
+            // URLSession completionはバックグラウンドスレッドの可能性あり → メインスレッドへ
+            DispatchQueue.main.async {
+                self?.handleMessage(message, from: peer.id)
+            }
         }
 
         client.connect()
@@ -240,7 +337,16 @@ class ConnectionManager: ObservableObject {
 
     // MARK: - Message Handling
 
-    private func handleMessage(_ message: String, from peerId: String) {
+    private func handleMessage(_ rawMessage: String, from peerId: String) {
+        // 暗号化メッセージのアンラップ（peerIdは接続コンテキストから既知）
+        let message: String
+        if MessageEncoder.shared.decodeType(from: rawMessage) == .encrypted,
+           let decrypted = CryptoManager.shared.unwrapMessage(rawMessage, from: peerId) {
+            message = decrypted
+        } else {
+            message = rawMessage
+        }
+
         guard let type = MessageEncoder.shared.decodeType(from: message) else {
             print("Unknown message type from \(peerId)")
             return
@@ -329,8 +435,14 @@ class ConnectionManager: ObservableObject {
     }
 
     private func handleDeviceInfo(_ message: DeviceInfoMessage, from peerId: String) {
+        // TOFU: 相手の公開鍵からセッション鍵を導出
+        if let peerKey = message.publicKey {
+            if CryptoManager.shared.deriveSessionKey(peerPublicKeyBase64: peerKey, peerId: peerId) {
+                print("[TOFU] Session key derived for \(peerId) (client side)")
+            }
+        }
+
         // リモート画面として追加（デフォルトはメイン画面の右側）
-        // peerIdを使用して一貫性を保つ
         ScreenManager.shared.addRemoteScreen(
             deviceId: peerId,
             name: message.hostname,
@@ -424,7 +536,12 @@ class ConnectionManager: ObservableObject {
     }
 
     func handleIncomingMessage(_ message: String, from peerId: String) {
-        // WebSocketServerから転送されたメッセージを処理
+        // メインスレッドで実行を保証
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { self.handleIncomingMessage(message, from: peerId) }
+            return
+        }
+        // DiscoveryServiceで既に復号済みのメッセージを受け取る
         guard let type = MessageEncoder.shared.decodeType(from: message) else {
             return
         }
@@ -432,7 +549,6 @@ class ConnectionManager: ObservableObject {
         switch type {
         case .cursorMove:
             if let msg = MessageEncoder.shared.decode(CursorMoveMessage.self, from: message) {
-                print("[ConnectionManager] Received cursorMove from \(peerId): (\(msg.x), \(msg.y))")
                 InputReceiver.shared.handleCursorMove(x: msg.x, y: msg.y)
             }
         case .mouseButton:
@@ -470,16 +586,4 @@ class ConnectionManager: ObservableObject {
         }
     }
 
-    // MARK: - Helpers
-
-    private func buildWebSocketURL(from endpoint: NWEndpoint) -> URL? {
-        switch endpoint {
-        case .hostPort(let host, let port):
-            return URL(string: "ws://\(host):\(port)")
-        case .service(let name, _, let domain, _):
-            return URL(string: "ws://\(name).\(domain):24800")
-        default:
-            return nil
-        }
-    }
 }

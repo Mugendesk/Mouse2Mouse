@@ -144,14 +144,12 @@ struct FileTransferView: View {
     private func handleDrop(providers: [NSItemProvider]) -> Bool {
         guard let peerId = selectedPeerId else { return false }
 
-        var urls: [URL] = []
-
         for provider in providers {
             if provider.canLoadObject(ofClass: URL.self) {
                 _ = provider.loadObject(ofClass: URL.self) { url, _ in
                     if let url = url {
                         DispatchQueue.main.async {
-                            fileTransfer.sendFile(url: url, to: peerId)
+                            self.fileTransfer.sendFile(url: url, to: peerId)
                         }
                     }
                 }

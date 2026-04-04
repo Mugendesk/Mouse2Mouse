@@ -29,6 +29,7 @@
     <key>NSBonjourServices</key>
     <array>
         <string>_mugendesk._tcp</string>
+        <string>_localsend._tcp</string>
     </array>
     <key>NSLocalNetworkUsageDescription</key>
     <string>Mouse2Mouseが同じネットワーク上のデバイスを発見するために必要です</string>

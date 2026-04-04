@@ -5,6 +5,7 @@ import CoreGraphics
 struct MenuBarView: View {
     @EnvironmentObject var discoveryService: DiscoveryService
     @EnvironmentObject var screenManager: ScreenManager
+    @EnvironmentObject var hotkeyManager: HotkeyManager
 
     @State private var showingScreenLayout = false
 
@@ -83,6 +84,9 @@ struct MenuBarView: View {
                 }
             }
 
+            // 共有トグル（Barrierの「Scroll Lock」相当）
+            sharingToggleSection
+
             // 親子役割切り替え
             roleToggleSection
 
@@ -102,6 +106,41 @@ struct MenuBarView: View {
         }
         .padding(.horizontal)
         .padding(.vertical, 8)
+    }
+
+    // MARK: - Sharing Toggle
+
+    private var sharingToggleSection: some View {
+        HStack {
+            Image(systemName: hotkeyManager.isSharingEnabled ? "lock.open.fill" : "lock.fill")
+                .foregroundColor(hotkeyManager.isSharingEnabled ? .green : .red)
+
+            Text(hotkeyManager.isSharingEnabled ? "共有: ON" : "共有: OFF")
+                .font(.subheadline)
+
+            Spacer()
+
+            Text("Ctrl+Opt+S")
+                .font(.caption2)
+                .foregroundColor(.secondary)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(Color.secondary.opacity(0.1))
+                .cornerRadius(4)
+
+            Toggle("", isOn: Binding(
+                get: { hotkeyManager.isSharingEnabled },
+                set: { newValue in
+                    if newValue != hotkeyManager.isSharingEnabled {
+                        hotkeyManager.toggle()
+                    }
+                }
+            ))
+                .toggleStyle(.switch)
+                .controlSize(.small)
+                .labelsHidden()
+        }
+        .padding(.vertical, 4)
     }
 
     // MARK: - Role Toggle
@@ -388,4 +427,5 @@ struct ConnectedPeerRow: View {
     MenuBarView()
         .environmentObject(DiscoveryService.shared)
         .environmentObject(ScreenManager.shared)
+        .environmentObject(HotkeyManager.shared)
 }

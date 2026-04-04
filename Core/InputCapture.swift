@@ -51,10 +51,12 @@ class InputCapture: ObservableObject {
         eventMask |= (1 << CGEventType.leftMouseDragged.rawValue)
         eventMask |= (1 << CGEventType.rightMouseDragged.rawValue)
         eventMask |= (1 << CGEventType.scrollWheel.rawValue)
-        // キーボードイベントはキャプチャしない（ローカルで常に動作）
-        // eventMask |= (1 << CGEventType.keyDown.rawValue)
-        // eventMask |= (1 << CGEventType.keyUp.rawValue)
-        // eventMask |= (1 << CGEventType.flagsChanged.rawValue)
+        // リモートモード時のみキーボードイベントもキャプチャ（Escで脱出、キー転送用）
+        if useDefaultTap {
+            eventMask |= (1 << CGEventType.keyDown.rawValue)
+            eventMask |= (1 << CGEventType.keyUp.rawValue)
+            eventMask |= (1 << CGEventType.flagsChanged.rawValue)
+        }
 
         // 自身へのポインタをuserInfoとして渡す
         let userInfo = Unmanaged.passUnretained(self).toOpaque()
@@ -113,6 +115,11 @@ class InputCapture: ObservableObject {
 
     /// リモートモードを開始（ローカル入力をブロックしてリモートに転送）
     func enterRemoteMode(entryPoint: CGPoint = .zero) {
+        // 権限チェック（なければリモートモードに入らない）
+        guard PermissionManager.hasAllPermissions() else {
+            print("[InputCapture] Cannot enter remote mode: permissions not granted")
+            return
+        }
         isRemoteMode = true
         virtualCursorPosition = entryPoint
         // イベントを消費できるようにdefaultTapで再作成
@@ -126,7 +133,7 @@ class InputCapture: ObservableObject {
     func exitRemoteMode() {
         guard isRemoteMode else { return }
         isRemoteMode = false
-        // カーソル固定を解除
+        // カーソル固定を最初に解除（他の処理が失敗してもロックされない）
         CGAssociateMouseAndMouseCursorPosition(1)
         // listenOnlyに戻す（安全）
         restartCapturing(withDefaultTap: false)
@@ -179,6 +186,13 @@ class InputCapture: ObservableObject {
             handleScroll(event: event)
 
         case .keyDown:
+            // ホットキーチェック（共有トグル: Ctrl+Option+S）
+            let hkKeycode = Int(event.getIntegerValueField(.keyboardEventKeycode))
+            let hkModifiers = getModifiers(from: event.flags)
+            if HotkeyManager.shared.checkHotkey(keycode: hkKeycode, modifiers: hkModifiers) {
+                HotkeyManager.shared.toggle()
+                return nil
+            }
             // Escキーでリモートモードから脱出
             if isRemoteMode && event.getIntegerValueField(.keyboardEventKeycode) == 53 {  // 53 = Escape
                 print("Escape pressed, exiting remote mode")
@@ -238,6 +252,26 @@ class InputCapture: ObservableObject {
                     exitRemoteMode()
                     ScreenManager.shared.returnControlToLocal()
                     InputTransmitter.shared.stopTransmitting()
+
+                    // カーソルをエッジから内側に移動して再トリガー防止
+                    let inset: CGFloat = 10
+                    if let primaryHeight = NSScreen.screens.first?.frame.height,
+                       let sourceId = ScreenManager.shared.transitionSourceScreen,
+                       let sourceScreen = ScreenManager.shared.localScreens.first(where: { $0.id == sourceId }) {
+                        let frame = ScreenManager.shared.appKitToQuartz(sourceScreen.frame, primaryHeight: primaryHeight)
+                        var returnPos = lastMousePosition
+                        switch remoteScreen.attachedEdge {
+                        case .right:
+                            returnPos.x = frame.maxX - inset
+                        case .left:
+                            returnPos.x = frame.minX + inset
+                        case .bottom:
+                            returnPos.y = frame.maxY - inset
+                        case .top:
+                            returnPos.y = frame.minY + inset
+                        }
+                        moveCursor(to: returnPos)
+                    }
                     return
                 }
 

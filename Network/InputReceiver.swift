@@ -25,7 +25,6 @@ class InputReceiver {
     func handleCursorMove(x: Double, y: Double) {
         // 注意: カーソル移動は役割に関係なく処理する
         // （Hostからの戻り操作のため）
-        print("[InputReceiver] handleCursorMove called: (\(x), \(y))")
 
         guard let screen = NSScreen.main else {
             print("[InputReceiver] ERROR: No main screen")
@@ -38,8 +37,6 @@ class InputReceiver {
 
         let cgPoint = CGPoint(x: actualX, y: actualY)
         virtualCursorPosition = cgPoint
-
-        print("[InputReceiver] Moving cursor to: (\(Int(actualX)), \(Int(actualY)))")
 
         // カーソルを移動
         moveCursor(to: cgPoint)
@@ -64,17 +61,11 @@ class InputReceiver {
             return
         }
         moveEvent.post(tap: .cghidEventTap)
-
-        // 実際のカーソル位置を確認
-        if let currentPos = CGEvent(source: nil)?.location {
-            print("[InputReceiver] Cursor now at: (\(Int(currentPos.x)), \(Int(currentPos.y)))")
-        }
     }
 
     // MARK: - Mouse Button
 
     func handleMouseButton(button: Int, isDown: Bool) {
-        print("[InputReceiver] handleMouseButton: button=\(button), isDown=\(isDown)")
 
         let mouseButton: CGMouseButton
         let downType: CGEventType
@@ -109,7 +100,6 @@ class InputReceiver {
             mouseButton: mouseButton
         )
         event?.post(tap: .cghidEventTap)
-        print("[InputReceiver] Posted mouse event at (\(Int(position.x)), \(Int(position.y)))")
     }
 
     // MARK: - Scroll

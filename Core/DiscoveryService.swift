@@ -115,6 +115,7 @@ class DiscoveryService: ObservableObject {
         ConnectionManager.shared.disconnectAll()
         connectedPeers.removeAll()
         serverClientMapping.removeAll()
+        messageRates.removeAll()
         ScreenManager.shared.remoteScreens.removeAll()
 
         isRunning = false
@@ -215,6 +216,10 @@ class DiscoveryService: ObservableObject {
     // WebSocketServerのクライアントID → peerIDのマッピング
     private var serverClientMapping: [String: String] = [:]
 
+    // メッセージレート制限（DoS防止）
+    private var messageRates: [String: (count: Int, resetTime: Date)] = [:]
+    private let maxMessagesPerSecond = 200
+
     private func startWebSocketServer() {
         webSocketServer = WebSocketServer(port: defaultPort)
 
@@ -241,7 +246,35 @@ class DiscoveryService: ObservableObject {
             }
         }
 
-        webSocketServer?.onMessageReceived = { [weak self] clientId, message in
+        webSocketServer?.onMessageReceived = { [weak self] clientId, rawMessage in
+            guard let self = self else { return }
+
+            // レート制限チェック
+            let now = Date()
+            var rate = self.messageRates[clientId] ?? (count: 0, resetTime: now)
+            if now.timeIntervalSince(rate.resetTime) >= 1.0 {
+                rate = (count: 1, resetTime: now)
+            } else {
+                rate.count += 1
+                if rate.count > self.maxMessagesPerSecond {
+                    // レート超過: メッセージを破棄
+                    return
+                }
+            }
+            self.messageRates[clientId] = rate
+
+            // clientIdからpeerIdを解決（暗号化復号に必要）
+            let senderPeerId = self.serverClientMapping[clientId] ?? clientId
+
+            // 暗号化メッセージのアンラップを試みる
+            let message: String
+            if MessageEncoder.shared.decodeType(from: rawMessage) == .encrypted,
+               let decrypted = CryptoManager.shared.unwrapMessage(rawMessage, from: senderPeerId) {
+                message = decrypted
+            } else {
+                message = rawMessage
+            }
+
             // サーバー経由で受信したメッセージを処理
             guard let type = MessageEncoder.shared.decodeType(from: message) else {
                 return
@@ -251,10 +284,10 @@ class DiscoveryService: ObservableObject {
             case .deviceInfo:
                 if let msg = MessageEncoder.shared.decode(DeviceInfoMessage.self, from: message) {
                     // peerIdを取得（discoveredPeersから、またはhostnameベース）
-                    let peerId = self?.discoveredPeers.first(where: { $0.deviceInfo?.hostname == msg.hostname })?.id ?? "\(msg.hostname)._mugendesk._tcp.local."
+                    let peerId = self.discoveredPeers.first(where: { $0.deviceInfo?.hostname == msg.hostname })?.id ?? "\(msg.hostname)._mugendesk._tcp.local."
 
                     // マッピングを保存
-                    self?.serverClientMapping[clientId] = peerId
+                    self.serverClientMapping[clientId] = peerId
                     print("[DeviceInfo] Mapped clientId \(clientId) -> peerId \(peerId)")
 
                     ScreenManager.shared.addRemoteScreen(
@@ -266,7 +299,7 @@ class DiscoveryService: ObservableObject {
                     print("[DeviceInfo] Added remote screen (server side) with peerId: \(peerId), hostname: \(msg.hostname)")
 
                     // 接続完了をconnectedPeersに追加
-                    if let peer = self?.discoveredPeers.first(where: { $0.id == peerId }) {
+                    if let peer = self.discoveredPeers.first(where: { $0.id == peerId }) {
                         var updated = peer
                         updated.isConnected = true
                         DispatchQueue.main.async {
@@ -276,17 +309,26 @@ class DiscoveryService: ObservableObject {
                         }
                     }
 
-                    // 自分のdeviceInfoを返信
-                    if let localInfo = self?.localDeviceInfo {
+                    // TOFU: 相手の公開鍵からセッション鍵を導出
+                    if let peerKey = msg.publicKey {
+                        if CryptoManager.shared.deriveSessionKey(peerPublicKeyBase64: peerKey, peerId: peerId) {
+                            print("[TOFU] Session key derived for \(peerId) (server side)")
+                        }
+                    }
+
+                    // 自分のdeviceInfoを返信（公開鍵付き、平文で送信）
+                    if let localInfo = self.localDeviceInfo {
                         let responseMsg = DeviceInfoMessage(
                             deviceId: localInfo.deviceId,
                             hostname: localInfo.hostname,
                             deviceType: .mac,
                             screenWidth: localInfo.screenWidth,
-                            screenHeight: localInfo.screenHeight
+                            screenHeight: localInfo.screenHeight,
+                            publicKey: CryptoManager.shared.publicKeyBase64
                         )
                         if let json = MessageEncoder.shared.encode(responseMsg) {
-                            self?.webSocketServer?.send(json, to: clientId)
+                            // deviceInfoは鍵交換に使うので暗号化しない（直接送信）
+                            self.webSocketServer?.send(json, to: clientId)
                             print("[DeviceInfo] Sent deviceInfo response to clientId: \(clientId)")
                         }
                     }
@@ -294,7 +336,7 @@ class DiscoveryService: ObservableObject {
             case .screenLayout:
                 if let msg = MessageEncoder.shared.decode(ScreenLayoutMessage.self, from: message) {
                     // clientIdからpeerIdを取得
-                    let peerId = self?.serverClientMapping[clientId] ?? clientId
+                    let peerId = self.serverClientMapping[clientId] ?? clientId
 
                     let reverseEdge: ScreenManager.RemoteScreen.Edge
                     switch msg.edge {
@@ -318,7 +360,7 @@ class DiscoveryService: ObservableObject {
                     }
                 }
             case .roleChange:
-                let peerId = self?.serverClientMapping[clientId] ?? clientId
+                let peerId = self.serverClientMapping[clientId] ?? clientId
                 if let msg = MessageEncoder.shared.decode(RoleChangeMessage.self, from: message) {
                     print("[DiscoveryService] Received roleChange from \(peerId): \(msg.role)")
                     DispatchQueue.main.async {
@@ -328,17 +370,13 @@ class DiscoveryService: ObservableObject {
 
             case .cursorMove, .mouseButton, .scroll, .key, .controlTransfer, .clipboard:
                 // clientIdからpeerIdを取得
-                let peerId = self?.serverClientMapping[clientId] ?? clientId
-
-                if type == .cursorMove {
-                    print("[DiscoveryService] Received cursorMove from \(peerId)")
-                }
+                let peerId = self.serverClientMapping[clientId] ?? clientId
 
                 // WebSocketClientのメッセージハンドラーを呼び出す
                 ConnectionManager.shared.handleIncomingMessage(message, from: peerId)
 
             case .filePrepare:
-                let peerId = self?.serverClientMapping[clientId] ?? clientId
+                let peerId = self.serverClientMapping[clientId] ?? clientId
                 if let msg = MessageEncoder.shared.decode(FilePrepareMessage.self, from: message) {
                     FileTransfer.shared.prepareReceive(
                         transferId: msg.transferId,
@@ -349,7 +387,7 @@ class DiscoveryService: ObservableObject {
                 }
 
             case .fileRequest:
-                let peerId = self?.serverClientMapping[clientId] ?? clientId
+                let peerId = self.serverClientMapping[clientId] ?? clientId
                 if let msg = MessageEncoder.shared.decode(FileRequestMessage.self, from: message) {
                     FileTransfer.shared.handleFileRequest(path: msg.path, requestId: msg.requestId, to: peerId)
                 }
@@ -396,23 +434,34 @@ class DiscoveryService: ObservableObject {
         webSocketServer?.broadcast(message)
     }
 
-    func send(_ message: String, to peerId: String) {
-        print("[DiscoveryService] Trying to send to \(peerId)")
-        print("[DiscoveryService] Active connections: \(ConnectionManager.shared.activeConnections.keys)")
-        print("[DiscoveryService] Server mappings: \(serverClientMapping)")
+    func send(_ message: String, to peerId: String, encrypt: Bool = true) {
+        // TOFU: セッション鍵がある場合は暗号化
+        let payload: String
+        if encrypt,
+           CryptoManager.shared.hasSessionKey(for: peerId),
+           let wrapped = CryptoManager.shared.wrapMessage(message, for: peerId) {
+            payload = wrapped
+        } else {
+            payload = message
+        }
 
         // WebSocketClient経由で送信を試みる
         if ConnectionManager.shared.activeConnections[peerId] != nil {
-            ConnectionManager.shared.send(message, to: peerId)
-            print("[DiscoveryService] Sent via WebSocketClient to \(peerId)")
+            ConnectionManager.shared.send(payload, to: peerId)
         } else {
             // WebSocketServer経由で送信（逆マッピングを使う）
             if let clientId = serverClientMapping.first(where: { $0.value == peerId })?.key {
-                webSocketServer?.send(message, to: clientId)
-                print("[DiscoveryService] Sent via WebSocketServer to clientId: \(clientId) (peerId: \(peerId))")
+                webSocketServer?.send(payload, to: clientId)
             } else {
                 print("[DiscoveryService] No route to peerId: \(peerId)")
             }
+        }
+    }
+
+    /// 全接続ピアにブロードキャスト（WebSocketClient/Server両経路を使用）
+    func broadcastToAllPeers(_ message: String) {
+        for peer in connectedPeers {
+            send(message, to: peer.id)
         }
     }
 }

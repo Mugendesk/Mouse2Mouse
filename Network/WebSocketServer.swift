@@ -139,6 +139,8 @@ class WebSocketConnection {
 
     private var isHandshakeComplete = false
     private var frameBuffer = Data()
+    private let maxFrameSize = 10 * 1024 * 1024  // 10MB
+    private let maxBufferSize = 20 * 1024 * 1024  // 20MB
 
     init(connection: NWConnection, clientId: String) {
         self.connection = connection
@@ -161,7 +163,17 @@ class WebSocketConnection {
     }
 
     func close() {
-        connection.cancel()
+        // Close frameを送信してから切断
+        if isHandshakeComplete {
+            var frame = Data()
+            frame.append(0x88)  // Close frame
+            frame.append(0x00)  // No payload
+            connection.send(content: frame, completion: .contentProcessed { [weak self] _ in
+                self?.connection.cancel()
+            })
+        } else {
+            connection.cancel()
+        }
     }
 
     func send(_ message: String) {
@@ -261,6 +273,13 @@ class WebSocketConnection {
     private func handleWebSocketFrame(_ data: Data) {
         frameBuffer.append(data)
 
+        // バッファサイズ上限チェック（メモリ枯渇防止）
+        guard frameBuffer.count <= maxBufferSize else {
+            print("[WebSocket] Buffer overflow (\(frameBuffer.count) bytes), closing connection")
+            close()
+            return
+        }
+
         while frameBuffer.count >= 2 {
             // 安全にバイト配列として取得
             let bufferBytes = [UInt8](frameBuffer)
@@ -286,6 +305,13 @@ class WebSocketConnection {
                     payloadLength = payloadLength << 8 | Int(bufferBytes[2 + i])
                 }
                 offset = 10
+            }
+
+            // フレームサイズ上限チェック
+            guard payloadLength <= maxFrameSize else {
+                print("[WebSocket] Frame too large: \(payloadLength) bytes, closing connection")
+                close()
+                return
             }
 
             // マスクキー

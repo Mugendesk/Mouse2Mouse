@@ -51,7 +51,7 @@ class PermissionManager {
             options: .listenOnly,
             eventsOfInterest: eventMask,
             callback: { _, _, event, _ in
-                return Unmanaged.passRetained(event)
+                return Unmanaged.passUnretained(event)
             },
             userInfo: nil
         ) else {

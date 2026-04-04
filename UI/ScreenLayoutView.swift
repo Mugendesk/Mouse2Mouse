@@ -208,10 +208,6 @@ struct ScreenLayoutView: View {
         let placedIds = Set(screenManager.remoteScreens.map { $0.id })
         let unplaced = connectedPeers.filter { !placedIds.contains($0.id) }
 
-        print("[ScreenLayoutView] Connected peers: \(connectedPeers.map { $0.id })")
-        print("[ScreenLayoutView] Placed IDs: \(placedIds)")
-        print("[ScreenLayoutView] Unplaced: \(unplaced.map { $0.id })")
-
         return Group {
             if !unplaced.isEmpty {
                 VStack(alignment: .leading, spacing: 8) {

@@ -47,8 +47,12 @@ class CryptoManager {
         return deriveSessionKey(peerPublicKey: peerPublicKey, peerId: peerId)
     }
 
-    /// 公開鍵からセッションキーを導出
+    /// 公開鍵からセッションキーを導出（既存キーがある場合は上書きしない：TOFU原則）
     func deriveSessionKey(peerPublicKey: Curve25519.KeyAgreement.PublicKey, peerId: String) -> Bool {
+        if sessionKeys[peerId] != nil {
+            print("Session key already exists for peer: \(peerId) (TOFU: keeping existing)")
+            return true
+        }
         do {
             let sharedSecret = try privateKey.sharedSecretFromKeyAgreement(with: peerPublicKey)
 
@@ -129,15 +133,13 @@ class CryptoManager {
 
     // MARK: - Secure Message Wrapper
 
-    /// 暗号化されたメッセージラッパー
+    /// 暗号化されたメッセージラッパー（typeフィールドのみ必須）
     struct EncryptedMessage: Codable {
         let type: String = "encrypted"
-        let peerId: String
         let data: String  // Base64 encoded encrypted data
         let timestamp: Double
 
-        init(peerId: String, data: String) {
-            self.peerId = peerId
+        init(data: String) {
             self.data = data
             self.timestamp = Date().timeIntervalSince1970
         }
@@ -147,7 +149,7 @@ class CryptoManager {
     func wrapMessage(_ message: String, for peerId: String) -> String? {
         guard let encrypted = encrypt(message, for: peerId) else { return nil }
 
-        let wrapper = EncryptedMessage(peerId: peerId, data: encrypted)
+        let wrapper = EncryptedMessage(data: encrypted)
 
         guard let data = try? JSONEncoder().encode(wrapper),
               let json = String(data: data, encoding: .utf8) else {
@@ -157,18 +159,14 @@ class CryptoManager {
         return json
     }
 
-    /// ラップされたメッセージを復号
-    func unwrapMessage(_ json: String) -> (peerId: String, message: String)? {
+    /// ラップされたメッセージを復号（接続コンテキストから既知のpeerIdを使用）
+    func unwrapMessage(_ json: String, from peerId: String) -> String? {
         guard let data = json.data(using: .utf8),
               let wrapper = try? JSONDecoder().decode(EncryptedMessage.self, from: data) else {
             return nil
         }
 
-        guard let decrypted = decrypt(wrapper.data, from: wrapper.peerId) else {
-            return nil
-        }
-
-        return (wrapper.peerId, decrypted)
+        return decrypt(wrapper.data, from: peerId)
     }
 }
 

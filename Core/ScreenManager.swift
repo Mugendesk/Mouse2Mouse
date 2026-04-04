@@ -25,6 +25,7 @@ class ScreenManager: ObservableObject {
     @Published var isControllingRemote = false
     @Published var transitionSourceScreen: String?  // 遷移元のローカル画面ID
     @Published var deviceRole: DeviceRole = .host  // デフォルトはホスト（操作元）
+    @Published var cornerGuardSize: CGFloat = 6  // コーナーガード（ピクセル、0で無効）
 
     // MARK: - Types
 
@@ -247,32 +248,54 @@ class ScreenManager: ObservableObject {
         let sourceScreenId: String  // どのローカル画面から遷移したか
     }
 
+    /// AppKit座標系(原点左下、Y↑)をQuartz座標系(原点左上、Y↓)に変換
+    func appKitToQuartz(_ rect: CGRect, primaryHeight: CGFloat) -> CGRect {
+        return CGRect(
+            x: rect.origin.x,
+            y: primaryHeight - rect.origin.y - rect.height,
+            width: rect.width,
+            height: rect.height
+        )
+    }
+
     /// カーソルが画面端に達したかチェック（マルチディスプレイ対応）
+    /// cursorPositionはCGEvent.location（Quartz座標系）を想定
     func checkEdgeReached(cursorPosition: CGPoint) -> EdgeHit? {
         let threshold: CGFloat = 1.0
 
-        // 全てのローカル画面をチェック
-        for localScreen in localScreens {
-            let frame = localScreen.visibleFrame
+        // CGEvent.locationはQuartz座標系(原点左上、Y↓)
+        // NSScreen.frameはAppKit座標系(原点左下、Y↑)
+        // 比較のためAppKitフレームをQuartzに変換
+        guard let primaryHeight = NSScreen.screens.first?.frame.height else { return nil }
 
-            // この画面内にカーソルがあるかチェック
+        for localScreen in localScreens {
+            let frame = appKitToQuartz(localScreen.visibleFrame, primaryHeight: primaryHeight)
+
             let expandedFrame = frame.insetBy(dx: -threshold, dy: -threshold)
             guard expandedFrame.contains(cursorPosition) else { continue }
 
-            // この画面に接続されているリモート画面をチェック
+            // コーナーガード: 画面角付近ではエッジ遷移しない（ホットコーナー誤動作防止）
+            if cornerGuardSize > 0 {
+                let corners = [
+                    CGPoint(x: frame.minX, y: frame.minY), CGPoint(x: frame.maxX, y: frame.minY),
+                    CGPoint(x: frame.minX, y: frame.maxY), CGPoint(x: frame.maxX, y: frame.maxY)
+                ]
+                let inCorner = corners.contains { abs(cursorPosition.x - $0.x) < cornerGuardSize && abs(cursorPosition.y - $0.y) < cornerGuardSize }
+                if inCorner { continue }
+            }
+
             for remoteScreen in remoteScreens {
                 guard remoteScreen.attachedTo == localScreen.id ||
                       (remoteScreen.attachedTo == nil && localScreen.isMain) else {
                     continue
                 }
 
-                let remoteFrame = remoteScreen.virtualFrame(relativeTo: localScreen.frame)
+                let remoteFrameAppKit = remoteScreen.virtualFrame(relativeTo: localScreen.frame)
+                let remoteFrame = appKitToQuartz(remoteFrameAppKit, primaryHeight: primaryHeight)
 
-                // 各辺をチェック
                 switch remoteScreen.attachedEdge {
                 case .left:
                     if cursorPosition.x <= frame.minX + threshold {
-                        // Y座標がリモート画面の範囲内か
                         if cursorPosition.y >= remoteFrame.minY && cursorPosition.y <= remoteFrame.maxY {
                             let entryY = cursorPosition.y - remoteFrame.minY
                             let entryPoint = CGPoint(x: remoteScreen.width - 1, y: entryY)
@@ -300,10 +323,12 @@ class ScreenManager: ObservableObject {
                     }
 
                 case .top:
-                    if cursorPosition.y >= frame.maxY - threshold {
+                    // リモートが上側 → ローカル画面の上端(Quartz: minY)で発火
+                    if cursorPosition.y <= frame.minY + threshold {
                         if cursorPosition.x >= remoteFrame.minX && cursorPosition.x <= remoteFrame.maxX {
                             let entryX = cursorPosition.x - remoteFrame.minX
-                            let entryPoint = CGPoint(x: entryX, y: 0)
+                            // リモート画面の下端(Quartz: height-1)から入る
+                            let entryPoint = CGPoint(x: entryX, y: remoteScreen.height - 1)
                             return EdgeHit(
                                 direction: .top,
                                 targetDevice: remoteScreen,
@@ -314,10 +339,12 @@ class ScreenManager: ObservableObject {
                     }
 
                 case .bottom:
-                    if cursorPosition.y <= frame.minY + threshold {
+                    // リモートが下側 → ローカル画面の下端(Quartz: maxY)で発火
+                    if cursorPosition.y >= frame.maxY - threshold {
                         if cursorPosition.x >= remoteFrame.minX && cursorPosition.x <= remoteFrame.maxX {
                             let entryX = cursorPosition.x - remoteFrame.minX
-                            let entryPoint = CGPoint(x: entryX, y: remoteScreen.height - 1)
+                            // リモート画面の上端(Quartz: 0)から入る
+                            let entryPoint = CGPoint(x: entryX, y: 0)
                             return EdgeHit(
                                 direction: .bottom,
                                 targetDevice: remoteScreen,
@@ -333,19 +360,23 @@ class ScreenManager: ObservableObject {
         return nil
     }
 
-    /// 正規化座標から実座標に変換（遷移元画面を考慮）
+    /// 正規化座標から実座標(Quartz座標系)に変換（遷移元画面を考慮）
     func denormalizePosition(x: Double, y: Double, forScreenId: String? = nil) -> CGPoint {
         let screenId = forScreenId ?? transitionSourceScreen
         let screen = localScreens.first(where: { $0.id == screenId })
                   ?? localScreens.first(where: { $0.isMain })
                   ?? localScreens.first
 
-        guard let screen = screen else {
+        guard let screen = screen,
+              let primaryHeight = NSScreen.screens.first?.frame.height else {
             return CGPoint(x: 100, y: 100)
         }
 
-        let actualX = screen.visibleFrame.minX + CGFloat(x) * screen.visibleFrame.width
-        let actualY = screen.visibleFrame.minY + CGFloat(y) * screen.visibleFrame.height
+        // CGEventはQuartz座標系なのでAppKitフレームを変換（frameを使用: 正規化座標もframe基準）
+        let quartzFrame = appKitToQuartz(screen.frame, primaryHeight: primaryHeight)
+
+        let actualX = quartzFrame.minX + CGFloat(x) * quartzFrame.width
+        let actualY = quartzFrame.minY + CGFloat(y) * quartzFrame.height
 
         return CGPoint(x: actualX, y: actualY)
     }

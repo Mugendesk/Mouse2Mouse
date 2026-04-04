@@ -23,6 +23,7 @@ class ClipboardSync: ObservableObject {
     // MARK: - Constants
 
     private let maxImageSize = 10 * 1024 * 1024  // 10MB
+    private let maxTextSize = 1024 * 1024  // 1MB
 
     // MARK: - Lifecycle
 
@@ -81,10 +82,14 @@ class ClipboardSync: ObservableObject {
     // MARK: - Sending
 
     private func sendText(_ text: String) {
+        guard text.utf8.count <= maxTextSize else {
+            print("Text too large for clipboard sync: \(text.utf8.count) bytes")
+            return
+        }
         let message = ClipboardMessage(format: .text, data: text)
 
         if let json = MessageEncoder.shared.encode(message) {
-            ConnectionManager.shared.broadcast(json)
+            DiscoveryService.shared.broadcastToAllPeers(json)
             syncedItemType = .text
             lastSyncTime = Date()
             print("Clipboard text synced: \(text.prefix(50))...")
@@ -108,7 +113,7 @@ class ClipboardSync: ObservableObject {
         let message = ClipboardMessage(format: .image, data: base64)
 
         if let json = MessageEncoder.shared.encode(message) {
-            ConnectionManager.shared.broadcast(json)
+            DiscoveryService.shared.broadcastToAllPeers(json)
             syncedItemType = .image
             lastSyncTime = Date()
             print("Clipboard image synced: \(pngData.count) bytes")
@@ -120,7 +125,7 @@ class ClipboardSync: ObservableObject {
         let message = ClipboardMessage(format: .fileReference, data: paths)
 
         if let json = MessageEncoder.shared.encode(message) {
-            ConnectionManager.shared.broadcast(json)
+            DiscoveryService.shared.broadcastToAllPeers(json)
             syncedItemType = .fileReference
             lastSyncTime = Date()
             print("Clipboard file references synced: \(urls.count) files")

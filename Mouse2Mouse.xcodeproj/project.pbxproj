@@ -27,6 +27,7 @@
 		911779F82F0A252400E040C6 /* InputReceiver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 911779DC2F0A252400E040C6 /* InputReceiver.swift */; };
 		911779F92F0A252400E040C6 /* PermissionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 911779D42F0A252400E040C6 /* PermissionManager.swift */; };
 		911779FA2F0A252400E040C6 /* InputTransmitter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 911779DD2F0A252400E040C6 /* InputTransmitter.swift */; };
+		911779FC2F0A252400E040C6 /* HotkeyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 911779FB2F0A252400E040C6 /* HotkeyManager.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -51,6 +52,7 @@
 		911779E32F0A252400E040C6 /* MenuBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarView.swift; sourceTree = "<group>"; };
 		911779E42F0A252400E040C6 /* PairingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingView.swift; sourceTree = "<group>"; };
 		911779E52F0A252400E040C6 /* ScreenLayoutView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenLayoutView.swift; sourceTree = "<group>"; };
+		911779FB2F0A252400E040C6 /* HotkeyManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotkeyManager.swift; sourceTree = "<group>"; };
 		911779FD2F0A57D600E040C6 /* Mouse2Mouse.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Mouse2Mouse.entitlements; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -101,6 +103,7 @@
 				911779CF2F0A252400E040C6 /* ConnectionManager.swift */,
 				911779D02F0A252400E040C6 /* CryptoManager.swift */,
 				911779D12F0A252400E040C6 /* DiscoveryService.swift */,
+				911779FB2F0A252400E040C6 /* HotkeyManager.swift */,
 				911779D22F0A252400E040C6 /* InputCapture.swift */,
 				911779D32F0A252400E040C6 /* PairingManager.swift */,
 				911779D42F0A252400E040C6 /* PermissionManager.swift */,
@@ -236,6 +239,7 @@
 				911779F82F0A252400E040C6 /* InputReceiver.swift in Sources */,
 				911779F92F0A252400E040C6 /* PermissionManager.swift in Sources */,
 				911779FA2F0A252400E040C6 /* InputTransmitter.swift in Sources */,
+				911779FC2F0A252400E040C6 /* HotkeyManager.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -372,7 +376,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = DHU8C4N287;
-				ENABLE_APP_SANDBOX = YES;
+				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_PREVIEWS = YES;
@@ -413,7 +417,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = DHU8C4N287;
-				ENABLE_APP_SANDBOX = YES;
+				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_PREVIEWS = YES;

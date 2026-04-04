@@ -105,6 +105,10 @@ class ReconnectionManager: ObservableObject {
         }
         reconnectTimers.removeAll()
         reconnectAttempts.removeAll()
+        for timer in healthCheckTimers.values {
+            timer.invalidate()
+        }
+        healthCheckTimers.removeAll()
     }
 
     // MARK: - Manual Reconnect
@@ -118,8 +122,13 @@ class ReconnectionManager: ObservableObject {
 
     // MARK: - Connection Health
 
+    private var healthCheckTimers: [String: Timer] = [:]
+
     func startHealthCheck(for peerId: String, interval: TimeInterval = 30) {
-        Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] timer in
+        // 既存のタイマーを停止
+        healthCheckTimers[peerId]?.invalidate()
+
+        let timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] timer in
             guard let self = self else {
                 timer.invalidate()
                 return
@@ -127,6 +136,8 @@ class ReconnectionManager: ObservableObject {
 
             guard let client = ConnectionManager.shared.activeConnections[peerId],
                   client.isConnected else {
+                timer.invalidate()
+                self.healthCheckTimers.removeValue(forKey: peerId)
                 return
             }
 
@@ -136,6 +147,7 @@ class ReconnectionManager: ObservableObject {
             """
             client.send(pingMessage)
         }
+        healthCheckTimers[peerId] = timer
     }
 }
 

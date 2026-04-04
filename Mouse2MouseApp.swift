@@ -1,5 +1,7 @@
 import SwiftUI
 import AppKit
+import UserNotifications
+import Combine
 
 @main
 struct Mouse2MouseApp: App {
@@ -22,8 +24,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     let inputCapture = InputCapture.shared
     let inputTransmitter = InputTransmitter.shared
     let connectionManager = ConnectionManager.shared
+    let hotkeyManager = HotkeyManager.shared
+    private var cancellables = Set<AnyCancellable>()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // クラッシュ時のカーソルロック解除ハンドラー
+        installCrashSafetyHandlers()
+
         // Dockアイコンを非表示
         NSApp.setActivationPolicy(.accessory)
 
@@ -32,6 +39,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // 権限チェック
         checkPermissions()
+
+        // 権限の定期チェック（実行中に取り消された場合の対応）
+        startPermissionMonitoring()
+
+        // 通知権限リクエスト
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
 
         // サービス起動
         startServices()
@@ -52,7 +65,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             rootView: MenuBarView()
                 .environmentObject(discoveryService)
                 .environmentObject(screenManager)
+                .environmentObject(hotkeyManager)
         )
+
+        // メニューバーアイコンを共有状態に連動
+        hotkeyManager.$isSharingEnabled
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] enabled in
+                let iconName = enabled ? "rectangle.on.rectangle" : "rectangle.on.rectangle.slash"
+                self?.statusItem.button?.image = NSImage(systemSymbolName: iconName, accessibilityDescription: "Mouse2Mouse")
+            }
+            .store(in: &cancellables)
     }
 
     @objc private func togglePopover() {
@@ -91,10 +114,45 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // クリップボード同期開始
         ClipboardSync.shared.startMonitoring()
 
+        // ファイル転送サーバー開始
+        FileTransferServer.shared.start()
+
         print("Mouse2Mouse started (role: \(screenManager.deviceRole.rawValue))")
     }
 
+    // MARK: - Crash Safety
+
+    private func installCrashSafetyHandlers() {
+        // 異常終了時にカーソルロックを確実に解除
+        signal(SIGINT) { _ in
+            CGAssociateMouseAndMouseCursorPosition(1)
+            exit(1)
+        }
+        signal(SIGTERM) { _ in
+            CGAssociateMouseAndMouseCursorPosition(1)
+            exit(0)
+        }
+        atexit {
+            CGAssociateMouseAndMouseCursorPosition(1)
+        }
+    }
+
+    // MARK: - Permission Monitoring
+
+    private var permissionTimer: Timer?
+
+    private func startPermissionMonitoring() {
+        permissionTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
+            if !PermissionManager.hasAllPermissions() {
+                print("[Permission] Permissions revoked, disabling input capture")
+                InputCapture.shared.exitRemoteMode()
+                InputCapture.shared.stopCapturing()
+            }
+        }
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
+        permissionTimer?.invalidate()
         // リモートモードを解除（カーソル固定を確実に解除）
         inputCapture.exitRemoteMode()
         inputCapture.stopCapturing()

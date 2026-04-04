@@ -25,6 +25,7 @@ enum MessageType: String, Codable {
     case fileData = "file_data"
     case fileComplete = "file_complete"
     case roleChange = "role_change"  // 親子役割変更通知
+    case encrypted = "encrypted"  // 暗号化ラッパー
 }
 
 // MARK: - Base Message
@@ -167,6 +168,7 @@ struct DeviceInfoMessage: Codable {
     let screenWidth: Int
     let screenHeight: Int
     let version: String
+    let publicKey: String?  // Base64 encoded X25519 public key (TOFU)
     let timestamp: Double
 
     enum CodingKeys: String, CodingKey {
@@ -177,16 +179,18 @@ struct DeviceInfoMessage: Codable {
         case screenWidth = "screen_width"
         case screenHeight = "screen_height"
         case version
+        case publicKey = "public_key"
         case timestamp
     }
 
-    init(deviceId: String, hostname: String, deviceType: DeviceType, screenWidth: Int, screenHeight: Int) {
+    init(deviceId: String, hostname: String, deviceType: DeviceType, screenWidth: Int, screenHeight: Int, publicKey: String? = nil) {
         self.deviceId = deviceId
         self.hostname = hostname
         self.deviceType = deviceType
         self.screenWidth = screenWidth
         self.screenHeight = screenHeight
         self.version = "1"
+        self.publicKey = publicKey
         self.timestamp = Date().timeIntervalSince1970
     }
 }

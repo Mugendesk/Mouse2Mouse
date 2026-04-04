@@ -128,6 +128,12 @@ class InputTransmitter {
             return
         }
 
+        // 共有ロック中はエッジ遷移しない（Barrierの「Scroll Lock」相当）
+        guard HotkeyManager.shared.isSharingEnabled else {
+            print("[InputTransmitter] Sharing disabled (locked to screen)")
+            return
+        }
+
         print("[InputTransmitter] handleEdgeReached: direction=\(direction), position=\(position)")
 
         // 明示的に EdgeHit? 型を指定してオーバーロードを解決
