@@ -105,9 +105,33 @@ class ScreenManager: ObservableObject {
 
     // MARK: - Lifecycle
 
+    private var screenChangeObserver: NSObjectProtocol?
+
     private init() {
         updateScreenInfo()
         loadRole()
+        observeScreenChanges()
+    }
+
+    deinit {
+        if let observer = screenChangeObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+    }
+
+    /// ディスプレイの接続/切断/解像度変更を監視
+    private func observeScreenChanges() {
+        screenChangeObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self = self else { return }
+            print("[ScreenManager] Screen configuration changed")
+            self.updateScreenInfo()
+            // DeviceInfoを再送（相手側に新しい画面サイズを通知）
+            DiscoveryService.shared.resendDeviceInfo()
+        }
     }
 
     // MARK: - Screen Info

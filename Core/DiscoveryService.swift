@@ -316,21 +316,11 @@ class DiscoveryService: ObservableObject {
                         }
                     }
 
-                    // 自分のdeviceInfoを返信（公開鍵付き、平文で送信）
-                    if let localInfo = self.localDeviceInfo {
-                        let responseMsg = DeviceInfoMessage(
-                            deviceId: localInfo.deviceId,
-                            hostname: localInfo.hostname,
-                            deviceType: .mac,
-                            screenWidth: localInfo.screenWidth,
-                            screenHeight: localInfo.screenHeight,
-                            publicKey: CryptoManager.shared.publicKeyBase64
-                        )
-                        if let json = MessageEncoder.shared.encode(responseMsg) {
-                            // deviceInfoは鍵交換に使うので暗号化しない（直接送信）
-                            self.webSocketServer?.send(json, to: clientId)
-                            print("[DeviceInfo] Sent deviceInfo response to clientId: \(clientId)")
-                        }
+                    // 自分のdeviceInfoを返信（鍵交換に使うので暗号化しない）
+                    if let responseMsg = self.buildLocalDeviceInfoMessage(),
+                       let json = MessageEncoder.shared.encode(responseMsg) {
+                        self.webSocketServer?.send(json, to: clientId)
+                        print("[DeviceInfo] Sent deviceInfo response to clientId: \(clientId)")
                     }
                 }
             case .screenLayout:
@@ -458,10 +448,34 @@ class DiscoveryService: ObservableObject {
         }
     }
 
+    /// localDeviceInfoからDeviceInfoMessage（公開鍵付き）を生成
+    func buildLocalDeviceInfoMessage() -> DeviceInfoMessage? {
+        guard let info = localDeviceInfo else { return nil }
+        return DeviceInfoMessage(
+            deviceId: info.deviceId,
+            hostname: info.hostname,
+            deviceType: .mac,
+            screenWidth: info.screenWidth,
+            screenHeight: info.screenHeight,
+            publicKey: CryptoManager.shared.publicKeyBase64
+        )
+    }
+
     /// 全接続ピアにブロードキャスト（WebSocketClient/Server両経路を使用）
     func broadcastToAllPeers(_ message: String) {
         for peer in connectedPeers {
             send(message, to: peer.id)
         }
+    }
+
+    /// DeviceInfoを更新して全ピアに再送（画面構成変更時）
+    func resendDeviceInfo() {
+        setupLocalDeviceInfo()
+        guard let message = buildLocalDeviceInfoMessage(),
+              let json = MessageEncoder.shared.encode(message) else { return }
+        for peer in connectedPeers {
+            send(json, to: peer.id, encrypt: false)
+        }
+        print("[DiscoveryService] Resent deviceInfo to \(connectedPeers.count) peer(s)")
     }
 }

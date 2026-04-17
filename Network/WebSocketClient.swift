@@ -269,20 +269,11 @@ class ConnectionManager: ObservableObject {
                     DiscoveryService.shared.connectedPeers.append(connectedPeer)
                 }
 
-                // 接続後に自分のdeviceInfoを送信（公開鍵付き）
-                if let info = DiscoveryService.shared.localDeviceInfo {
-                    let message = DeviceInfoMessage(
-                        deviceId: info.deviceId,
-                        hostname: info.hostname,
-                        deviceType: .mac,
-                        screenWidth: info.screenWidth,
-                        screenHeight: info.screenHeight,
-                        publicKey: CryptoManager.shared.publicKeyBase64
-                    )
-                    if let json = MessageEncoder.shared.encode(message) {
-                        client.send(json)
-                        print("[ConnectionManager] Sent deviceInfo to \(peer.name)")
-                    }
+                // 接続後に自分のdeviceInfoを送信（鍵交換用なので暗号化しない）
+                if let message = DiscoveryService.shared.buildLocalDeviceInfoMessage(),
+                   let json = MessageEncoder.shared.encode(message) {
+                    client.send(json)
+                    print("[ConnectionManager] Sent deviceInfo to \(peer.name)")
                 }
             }
         }
@@ -360,7 +351,7 @@ class ConnectionManager: ObservableObject {
 
         case .mouseButton:
             if let msg = MessageEncoder.shared.decode(MouseButtonMessage.self, from: message) {
-                InputReceiver.shared.handleMouseButton(button: msg.button, isDown: msg.state == .down)
+                InputReceiver.shared.handleMouseButton(button: msg.button, isDown: msg.state == .down, clickCount: msg.clickCount)
             }
 
         case .scroll:
@@ -429,6 +420,7 @@ class ConnectionManager: ObservableObject {
         // 受信した時点で自分宛て（WebSocket接続経由で直接受信するため）
         print("[ConnectionManager] Received controlTransfer: to=\(message.to), entry=(\(message.entryX), \(message.entryY))")
         let position = ScreenManager.shared.denormalizePosition(x: message.entryX, y: message.entryY)
+        InputReceiver.shared.setVirtualCursorPosition(position)
         InputCapture.shared.moveCursor(to: position)
         InputCapture.shared.exitRemoteMode()
         ScreenManager.shared.returnControlToLocal()
@@ -553,7 +545,7 @@ class ConnectionManager: ObservableObject {
             }
         case .mouseButton:
             if let msg = MessageEncoder.shared.decode(MouseButtonMessage.self, from: message) {
-                InputReceiver.shared.handleMouseButton(button: msg.button, isDown: msg.state == .down)
+                InputReceiver.shared.handleMouseButton(button: msg.button, isDown: msg.state == .down, clickCount: msg.clickCount)
             }
         case .scroll:
             if let msg = MessageEncoder.shared.decode(ScrollMessage.self, from: message) {
@@ -567,6 +559,7 @@ class ConnectionManager: ObservableObject {
             if let msg = MessageEncoder.shared.decode(ControlTransferMessage.self, from: message) {
                 print("[ConnectionManager] Received controlTransfer (incoming): to=\(msg.to)")
                 let position = ScreenManager.shared.denormalizePosition(x: msg.entryX, y: msg.entryY)
+                InputReceiver.shared.setVirtualCursorPosition(position)
                 InputCapture.shared.moveCursor(to: position)
                 InputCapture.shared.exitRemoteMode()
                 ScreenManager.shared.returnControlToLocal()

@@ -16,7 +16,7 @@ class InputCapture: ObservableObject {
     // MARK: - Callbacks
 
     var onCursorMove: ((CGPoint) -> Void)?
-    var onMouseButton: ((Int, Bool) -> Void)?  // button, isDown
+    var onMouseButton: ((Int, Bool, Int) -> Void)?  // button, isDown, clickCount
     var onScroll: ((CGFloat, CGFloat) -> Void)?  // dx, dy
     var onKeyEvent: ((Int, Bool, [String]) -> Void)?  // keycode, isDown, modifiers
     var onEdgeReached: ((ScreenManager.EdgeDirection, CGPoint) -> Void)?
@@ -30,52 +30,70 @@ class InputCapture: ObservableObject {
     private var useDefaultTap = false  // true: イベント消費可能（リモートモード用）、false: listenOnly（安全）
     private var edgeCooldownUntil: Date = .distantPast  // エッジ検出クールダウン（バウンスバック防止）
 
+    // ウォッチドッグ: リモートモード中にイベント途絶5秒で自動解除（カーソルロック防止）
+    private var watchdogTimer: DispatchSourceTimer?
+    private var lastEventTimestamp: CFAbsoluteTime = CFAbsoluteTimeGetCurrent()
+    private let watchdogTimeout: CFAbsoluteTime = 5.0
+
     // MARK: - Lifecycle
 
     private init() {}
 
     // MARK: - Capture Control
 
+    /// キーボードイベントがキャプチャできているか（Input Monitoring権限依存）
+    private(set) var hasKeyboardCapture = false
+
     func startCapturing() {
         guard !isCapturing else { return }
 
-        var eventMask: CGEventMask = 0
-        // マウスイベントのみキャプチャ（キーボードはキャプチャしない = 詰まない）
-        eventMask |= (1 << CGEventType.mouseMoved.rawValue)
-        eventMask |= (1 << CGEventType.leftMouseDown.rawValue)
-        eventMask |= (1 << CGEventType.leftMouseUp.rawValue)
-        eventMask |= (1 << CGEventType.rightMouseDown.rawValue)
-        eventMask |= (1 << CGEventType.rightMouseUp.rawValue)
-        eventMask |= (1 << CGEventType.otherMouseDown.rawValue)
-        eventMask |= (1 << CGEventType.otherMouseUp.rawValue)
-        eventMask |= (1 << CGEventType.leftMouseDragged.rawValue)
-        eventMask |= (1 << CGEventType.rightMouseDragged.rawValue)
-        eventMask |= (1 << CGEventType.scrollWheel.rawValue)
-        // リモートモード時のみキーボードイベントもキャプチャ（Escで脱出、キー転送用）
-        if useDefaultTap {
-            eventMask |= (1 << CGEventType.keyDown.rawValue)
-            eventMask |= (1 << CGEventType.keyUp.rawValue)
-            eventMask |= (1 << CGEventType.flagsChanged.rawValue)
+        let mouseTypes: [CGEventType] = [
+            .mouseMoved, .leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp,
+            .otherMouseDown, .otherMouseUp, .leftMouseDragged, .rightMouseDragged, .scrollWheel
+        ]
+        let keyboardTypes: [CGEventType] = [.keyDown, .keyUp, .flagsChanged]
+
+        let mouseMask = mouseTypes.reduce(CGEventMask(0)) { $0 | (1 << $1.rawValue) }
+        let keyboardMask = keyboardTypes.reduce(CGEventMask(0)) { $0 | (1 << $1.rawValue) }
+
+        let userInfo = Unmanaged.passUnretained(self).toOpaque()
+        let tapOption: CGEventTapOptions = useDefaultTap ? .defaultTap : .listenOnly
+        let callback: CGEventTapCallBack = { proxy, type, event, userInfo in
+            guard let userInfo = userInfo else {
+                return Unmanaged.passRetained(event)
+            }
+            let capture = Unmanaged<InputCapture>.fromOpaque(userInfo).takeUnretainedValue()
+            return capture.handleEvent(proxy: proxy, type: type, event: event)
         }
 
-        // 自身へのポインタをuserInfoとして渡す
-        let userInfo = Unmanaged.passUnretained(self).toOpaque()
-
-        guard let tap = CGEvent.tapCreate(
+        // まずキーボード込みで試行、失敗したらマウスのみでフォールバック
+        var tap = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
             place: .headInsertEventTap,
-            options: useDefaultTap ? .defaultTap : .listenOnly,  // リモートモード時のみイベント消費可能
-            eventsOfInterest: eventMask,
-            callback: { proxy, type, event, userInfo in
-                guard let userInfo = userInfo else {
-                    return Unmanaged.passRetained(event)
-                }
-                let capture = Unmanaged<InputCapture>.fromOpaque(userInfo).takeUnretainedValue()
-                return capture.handleEvent(proxy: proxy, type: type, event: event)
-            },
+            options: tapOption,
+            eventsOfInterest: mouseMask | keyboardMask,
+            callback: callback,
             userInfo: userInfo
-        ) else {
-            print("Failed to create event tap - check accessibility permissions")
+        )
+
+        if tap != nil {
+            hasKeyboardCapture = true
+        } else {
+            // Input Monitoring権限なし → マウスのみで再試行
+            print("[InputCapture] Keyboard capture failed, falling back to mouse-only")
+            tap = CGEvent.tapCreate(
+                tap: .cgSessionEventTap,
+                place: .headInsertEventTap,
+                options: tapOption,
+                eventsOfInterest: mouseMask,
+                callback: callback,
+                userInfo: userInfo
+            )
+            hasKeyboardCapture = false
+        }
+
+        guard let tap = tap else {
+            print("[InputCapture] Failed to create event tap - check accessibility permissions")
             return
         }
 
@@ -89,7 +107,7 @@ class InputCapture: ObservableObject {
         CGEvent.tapEnable(tap: tap, enable: true)
 
         isCapturing = true
-        print("Input capture started")
+        print("[InputCapture] Started (keyboard: \(hasKeyboardCapture), defaultTap: \(useDefaultTap))")
     }
 
     func stopCapturing() {
@@ -126,18 +144,22 @@ class InputCapture: ObservableObject {
         restartCapturing(withDefaultTap: true)
         // カーソルを固定
         CGAssociateMouseAndMouseCursorPosition(0)
-        print("Entered remote mode at \(entryPoint)")
+        // ウォッチドッグ開始（イベント途絶で自動解除）
+        startWatchdog()
+        print("[InputCapture] Entered remote mode at \(entryPoint)")
     }
 
     /// リモートモードを終了
     func exitRemoteMode() {
         guard isRemoteMode else { return }
         isRemoteMode = false
+        // ウォッチドッグ停止
+        stopWatchdog()
         // カーソル固定を最初に解除（他の処理が失敗してもロックされない）
         CGAssociateMouseAndMouseCursorPosition(1)
-        // listenOnlyに戻す（安全）
+        // listenOnlyに戻す（安全 — フォールバックでマウスのみになっても入力はブロックされない）
         restartCapturing(withDefaultTap: false)
-        print("Exited remote mode")
+        print("[InputCapture] Exited remote mode (keyboard: \(hasKeyboardCapture))")
     }
 
     /// タップを再作成（listenOnly <-> defaultTap の切り替え）
@@ -152,9 +174,38 @@ class InputCapture: ObservableObject {
         }
     }
 
+    // MARK: - Watchdog (リモートモードの安全装置)
+
+    private func startWatchdog() {
+        stopWatchdog()
+        lastEventTimestamp = CFAbsoluteTimeGetCurrent()
+
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(deadline: .now() + 1, repeating: 1.0)
+        timer.setEventHandler { [weak self] in
+            guard let self = self, self.isRemoteMode else { return }
+            let elapsed = CFAbsoluteTimeGetCurrent() - self.lastEventTimestamp
+            if elapsed > self.watchdogTimeout {
+                print("[Watchdog] No events for \(Int(elapsed))s — force exiting remote mode")
+                self.exitRemoteMode()
+                ScreenManager.shared.returnControlToLocal()
+                InputTransmitter.shared.stopTransmitting()
+            }
+        }
+        timer.resume()
+        watchdogTimer = timer
+    }
+
+    private func stopWatchdog() {
+        watchdogTimer?.cancel()
+        watchdogTimer = nil
+    }
+
     // MARK: - Event Handling
 
     private func handleEvent(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
+        lastEventTimestamp = CFAbsoluteTimeGetCurrent()
+
         // タップが無効になった場合は再有効化
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
             if let tap = eventTap {
@@ -168,19 +219,19 @@ class InputCapture: ObservableObject {
             handleMouseMove(event: event)
 
         case .leftMouseDown:
-            handleMouseButton(button: 0, isDown: true)
+            handleMouseButton(button: 0, isDown: true, event: event)
         case .leftMouseUp:
-            handleMouseButton(button: 0, isDown: false)
+            handleMouseButton(button: 0, isDown: false, event: event)
 
         case .rightMouseDown:
-            handleMouseButton(button: 1, isDown: true)
+            handleMouseButton(button: 1, isDown: true, event: event)
         case .rightMouseUp:
-            handleMouseButton(button: 1, isDown: false)
+            handleMouseButton(button: 1, isDown: false, event: event)
 
         case .otherMouseDown:
-            handleMouseButton(button: 2, isDown: true)
+            handleMouseButton(button: 2, isDown: true, event: event)
         case .otherMouseUp:
-            handleMouseButton(button: 2, isDown: false)
+            handleMouseButton(button: 2, isDown: false, event: event)
 
         case .scrollWheel:
             handleScroll(event: event)
@@ -307,8 +358,9 @@ class InputCapture: ObservableObject {
         }
     }
 
-    private func handleMouseButton(button: Int, isDown: Bool) {
-        onMouseButton?(button, isDown)
+    private func handleMouseButton(button: Int, isDown: Bool, event: CGEvent) {
+        let clickCount = Int(event.getIntegerValueField(.mouseEventClickState))
+        onMouseButton?(button, isDown, clickCount)
     }
 
     private func handleScroll(event: CGEvent) {

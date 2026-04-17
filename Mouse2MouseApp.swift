@@ -123,14 +123,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Crash Safety
 
     private func installCrashSafetyHandlers() {
-        // 異常終了時にカーソルロックを確実に解除
-        signal(SIGINT) { _ in
-            CGAssociateMouseAndMouseCursorPosition(1)
-            exit(1)
-        }
-        signal(SIGTERM) { _ in
-            CGAssociateMouseAndMouseCursorPosition(1)
-            exit(0)
+        // あらゆる異常終了でカーソルロックを解除
+        let signals: [Int32] = [SIGINT, SIGTERM, SIGABRT, SIGSEGV, SIGBUS, SIGFPE, SIGILL]
+        for sig in signals {
+            signal(sig) { _ in
+                CGAssociateMouseAndMouseCursorPosition(1)
+                // SIGTERM以外は異常終了
+                _exit(1)
+            }
         }
         atexit {
             CGAssociateMouseAndMouseCursorPosition(1)

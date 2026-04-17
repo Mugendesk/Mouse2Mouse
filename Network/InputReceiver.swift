@@ -11,6 +11,11 @@ class InputReceiver {
 
     private init() {}
 
+    /// 外部からカーソル位置を設定（controlTransfer受信時に初期位置を同期）
+    func setVirtualCursorPosition(_ position: CGPoint) {
+        virtualCursorPosition = position
+    }
+
     // MARK: - Role Check
 
     /// Hostモードの場合は入力を受け付けない
@@ -65,8 +70,7 @@ class InputReceiver {
 
     // MARK: - Mouse Button
 
-    func handleMouseButton(button: Int, isDown: Bool) {
-
+    func handleMouseButton(button: Int, isDown: Bool, clickCount: Int = 1) {
         let mouseButton: CGMouseButton
         let downType: CGEventType
         let upType: CGEventType
@@ -90,7 +94,6 @@ class InputReceiver {
 
         let eventType = isDown ? downType : upType
 
-        // 現在のカーソル位置でクリックイベントを生成
         let position = virtualCursorPosition
 
         let event = CGEvent(
@@ -99,6 +102,8 @@ class InputReceiver {
             mouseCursorPosition: position,
             mouseButton: mouseButton
         )
+        // clickCountを設定（macOSアプリがクリックを認識するために必須）
+        event?.setIntegerValueField(.mouseEventClickState, value: Int64(clickCount))
         event?.post(tap: .cghidEventTap)
     }
 

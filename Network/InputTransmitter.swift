@@ -25,8 +25,8 @@ class InputTransmitter {
             self?.sendCursorMove(position)
         }
 
-        inputCapture.onMouseButton = { [weak self] button, isDown in
-            self?.sendMouseButton(button: button, isDown: isDown)
+        inputCapture.onMouseButton = { [weak self] button, isDown, clickCount in
+            self?.sendMouseButton(button: button, isDown: isDown, clickCount: clickCount)
         }
 
         inputCapture.onScroll = { [weak self] dx, dy in
@@ -88,13 +88,12 @@ class InputTransmitter {
         }
     }
 
-    private func sendMouseButton(button: Int, isDown: Bool) {
+    private func sendMouseButton(button: Int, isDown: Bool, clickCount: Int = 1) {
         guard isTransmitting else { return }
 
-        let message = MouseButtonMessage(button: button, state: isDown ? .down : .up)
+        let message = MouseButtonMessage(button: button, state: isDown ? .down : .up, clickCount: clickCount)
 
         if let json = encoder.encode(message) {
-            print("[InputTransmitter] Sending mouseButton: button=\(button), isDown=\(isDown)")
             sendToTarget(json)
         }
     }
@@ -171,21 +170,4 @@ class InputTransmitter {
         }
     }
 
-    // MARK: - Device Info
-
-    func sendDeviceInfo() {
-        guard let info = DiscoveryService.shared.localDeviceInfo else { return }
-
-        let message = DeviceInfoMessage(
-            deviceId: info.deviceId,
-            hostname: info.hostname,
-            deviceType: .mac,
-            screenWidth: info.screenWidth,
-            screenHeight: info.screenHeight
-        )
-
-        if let json = encoder.encode(message) {
-            ConnectionManager.shared.broadcast(json)
-        }
-    }
 }

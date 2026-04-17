@@ -66,11 +66,19 @@ struct MouseButtonMessage: Codable {
     let type: String = "mouse_button"
     let button: Int  // 0=left, 1=right, 2=middle
     let state: ButtonState
+    let clickCount: Int  // 1=single, 2=double, 3=triple
     let timestamp: Double
 
-    init(button: Int, state: ButtonState) {
+    enum CodingKeys: String, CodingKey {
+        case type, button, state
+        case clickCount = "click_count"
+        case timestamp
+    }
+
+    init(button: Int, state: ButtonState, clickCount: Int = 1) {
         self.button = button
         self.state = state
+        self.clickCount = max(1, clickCount)
         self.timestamp = Date().timeIntervalSince1970
     }
 }
