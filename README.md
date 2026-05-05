@@ -37,34 +37,40 @@ Mac間の常時接続基盤。1つのマウスとキーボードで、複数のM
 - **暗号化**: CryptoKit (X25519, ChaCha20-Poly1305)
 - **入力傍受**: CGEvent API
 
-## ディレクトリ構造
+## ディレクトリ構造（モノレポ）
 
 ```
 Mouse2Mouse/
-├── Mouse2MouseApp.swift      # アプリエントリーポイント
-├── Core/
-│   ├── DiscoveryService.swift    # mDNS発見・接続管理
-│   ├── InputCapture.swift        # マウス/キーボード傍受
-│   ├── ScreenManager.swift       # 画面配置管理
-│   ├── PermissionManager.swift   # 権限管理
-│   ├── PairingManager.swift      # ペアリング認証
-│   ├── CryptoManager.swift       # 暗号化
-│   └── ConnectionManager.swift   # 接続管理・自動再接続
-├── Network/
-│   ├── Protocol.swift            # メッセージ定義
-│   ├── WebSocketServer.swift     # WebSocketサーバー
-│   ├── WebSocketClient.swift     # WebSocketクライアント
-│   ├── InputTransmitter.swift    # 入力送信
-│   └── InputReceiver.swift       # 入力受信・注入
-├── Features/
-│   ├── ClipboardSync.swift       # クリップボード同期
-│   ├── FileTransfer.swift        # ファイル転送
-│   └── FileTransferServer.swift  # LocalSend互換サーバー
-└── UI/
-    ├── MenuBarView.swift         # メニューバーUI
-    ├── ScreenLayoutView.swift    # 画面配置UI
-    ├── PairingView.swift         # ペアリングUI
-    └── FileTransferView.swift    # ファイル転送UI
+├── apps/
+│   └── macos/                        # macOSアプリ
+│       ├── Mouse2Mouse.xcodeproj
+│       ├── Mouse2MouseApp.swift      # アプリエントリーポイント
+│       ├── Core/
+│       │   ├── DiscoveryService.swift    # mDNS発見・接続管理
+│       │   ├── InputCapture.swift        # マウス/キーボード傍受
+│       │   ├── ScreenManager.swift       # 画面配置管理
+│       │   ├── PermissionManager.swift   # 権限管理
+│       │   ├── PairingManager.swift      # ペアリング認証
+│       │   ├── CryptoManager.swift       # 暗号化
+│       │   ├── ConnectionManager.swift   # 接続管理・自動再接続
+│       │   └── HotkeyManager.swift       # ホットキー
+│       ├── Network/
+│       │   ├── Protocol.swift            # メッセージ定義
+│       │   ├── WebSocketServer.swift     # WebSocketサーバー
+│       │   ├── WebSocketClient.swift     # WebSocketクライアント
+│       │   ├── InputTransmitter.swift    # 入力送信
+│       │   └── InputReceiver.swift       # 入力受信・注入
+│       ├── Features/
+│       │   ├── ClipboardSync.swift       # クリップボード同期
+│       │   ├── FileTransfer.swift        # ファイル転送
+│       │   └── FileTransferServer.swift  # LocalSend互換サーバー
+│       └── UI/
+│           ├── MenuBarView.swift         # メニューバーUI
+│           ├── ScreenLayoutView.swift    # 画面配置UI
+│           ├── PairingView.swift         # ペアリングUI
+│           └── FileTransferView.swift    # ファイル転送UI
+└── tools/
+    └── rescue.sh                     # 緊急復旧スクリプト（カーソルロック解除）
 ```
 
 ## 通信プロトコル
@@ -97,9 +103,14 @@ Mouse2Mouse/
 
 ## ビルド
 
-1. Xcodeで `Mouse2Mouse.xcodeproj` を開く
+1. Xcodeで `apps/macos/Mouse2Mouse.xcodeproj` を開く
 2. Signing & Capabilities でTeam IDを設定
 3. Build (Cmd+B)
+
+CLIから:
+```bash
+xcodebuild -project apps/macos/Mouse2Mouse.xcodeproj -scheme Mouse2Mouse build
+```
 
 ## 使い方
 
