@@ -329,6 +329,9 @@ class ConnectionManager: ObservableObject {
     // MARK: - Message Handling
 
     private func handleMessage(_ rawMessage: String, from peerId: String) {
+        // ピア無音検知ウォッチドッグのリセット（リモートモード中の生存確認）
+        InputCapture.shared.peerMessageReceived()
+
         // 暗号化メッセージのアンラップ（peerIdは接続コンテキストから既知）
         let message: String
         if MessageEncoder.shared.decodeType(from: rawMessage) == .encrypted,
@@ -344,6 +347,16 @@ class ConnectionManager: ObservableObject {
         }
 
         switch type {
+        case .ping:
+            // pingにはpongで即応答（ピア生存確認用）
+            let pong = "{\"type\":\"pong\",\"timestamp\":\(Date().timeIntervalSince1970)}"
+            DiscoveryService.shared.send(pong, to: peerId, encrypt: false)
+            return
+
+        case .pong:
+            // peerMessageReceivedで既にウォッチドッグはリセット済み
+            return
+
         case .cursorMove:
             if let msg = MessageEncoder.shared.decode(CursorMoveMessage.self, from: message) {
                 InputReceiver.shared.handleCursorMove(x: msg.x, y: msg.y)
@@ -434,14 +447,18 @@ class ConnectionManager: ObservableObject {
             }
         }
 
-        // リモート画面として追加（デフォルトはメイン画面の右側）
-        ScreenManager.shared.addRemoteScreen(
-            deviceId: peerId,
-            name: message.hostname,
-            width: CGFloat(message.screenWidth),
-            height: CGFloat(message.screenHeight)
-        )
-        print("[DeviceInfo] Added remote screen with peerId: \(peerId), hostname: \(message.hostname)")
+        // リモート画面として追加（screens配列があればディスプレイ単位で追加）
+        if let screens = message.screens, !screens.isEmpty {
+            ScreenManager.shared.setRemoteDisplays(peerId: peerId, peerName: message.hostname, displays: screens)
+        } else {
+            ScreenManager.shared.addRemoteScreen(
+                deviceId: peerId,
+                name: message.hostname,
+                width: CGFloat(message.screenWidth),
+                height: CGFloat(message.screenHeight)
+            )
+        }
+        print("[DeviceInfo] Added \(message.screens?.count ?? 1) display(s) for peer \(message.hostname) [\(peerId)]")
     }
 
     private func handleScreenLayout(_ message: ScreenLayoutMessage, from peerId: String) {

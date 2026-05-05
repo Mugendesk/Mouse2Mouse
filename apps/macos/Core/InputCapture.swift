@@ -30,10 +30,24 @@ class InputCapture: ObservableObject {
     private var useDefaultTap = false  // true: イベント消費可能（リモートモード用）、false: listenOnly（安全）
     private var edgeCooldownUntil: Date = .distantPast  // エッジ検出クールダウン（バウンスバック防止）
 
-    // ウォッチドッグ: リモートモード中にイベント途絶5秒で自動解除（カーソルロック防止）
+    // パニック脱出: 600ms以内に3回Esc連打で強制リセット
+    private var escPressTimestamps: [CFAbsoluteTime] = []
+    private let panicWindow: CFAbsoluteTime = 0.6
+    private let panicCount = 3
+
+    // ウォッチドッグ:
+    // - 入力イベント途絶3秒 → 自動解除（ユーザーが離席）
+    // - ピア無音2秒 → 自動解除（ネットワーク死亡 / ピアクラッシュ）
     private var watchdogTimer: DispatchSourceTimer?
     private var lastEventTimestamp: CFAbsoluteTime = CFAbsoluteTimeGetCurrent()
-    private let watchdogTimeout: CFAbsoluteTime = 5.0
+    private var lastPeerMessageTimestamp: CFAbsoluteTime = CFAbsoluteTimeGetCurrent()
+    private let inputWatchdogTimeout: CFAbsoluteTime = 3.0
+    private let peerWatchdogTimeout: CFAbsoluteTime = 2.0
+
+    /// ピアからメッセージ受信時に呼ぶ（無音検知のリセット）
+    func peerMessageReceived() {
+        lastPeerMessageTimestamp = CFAbsoluteTimeGetCurrent()
+    }
 
     // MARK: - Lifecycle
 
@@ -178,15 +192,25 @@ class InputCapture: ObservableObject {
 
     private func startWatchdog() {
         stopWatchdog()
-        lastEventTimestamp = CFAbsoluteTimeGetCurrent()
+        let now = CFAbsoluteTimeGetCurrent()
+        lastEventTimestamp = now
+        lastPeerMessageTimestamp = now
 
         let timer = DispatchSource.makeTimerSource(queue: .main)
-        timer.schedule(deadline: .now() + 1, repeating: 1.0)
+        timer.schedule(deadline: .now() + 0.5, repeating: 0.5)
         timer.setEventHandler { [weak self] in
             guard let self = self, self.isRemoteMode else { return }
-            let elapsed = CFAbsoluteTimeGetCurrent() - self.lastEventTimestamp
-            if elapsed > self.watchdogTimeout {
-                print("[Watchdog] No events for \(Int(elapsed))s — force exiting remote mode")
+            let now = CFAbsoluteTimeGetCurrent()
+            let inputElapsed = now - self.lastEventTimestamp
+            let peerElapsed = now - self.lastPeerMessageTimestamp
+
+            if inputElapsed > self.inputWatchdogTimeout {
+                print("[Watchdog] No local input for \(String(format: "%.1f", inputElapsed))s — force exiting remote mode")
+                self.exitRemoteMode()
+                ScreenManager.shared.returnControlToLocal()
+                InputTransmitter.shared.stopTransmitting()
+            } else if peerElapsed > self.peerWatchdogTimeout {
+                print("[Watchdog] No peer messages for \(String(format: "%.1f", peerElapsed))s — peer unresponsive, exiting remote mode")
                 self.exitRemoteMode()
                 ScreenManager.shared.returnControlToLocal()
                 InputTransmitter.shared.stopTransmitting()
@@ -244,12 +268,26 @@ class InputCapture: ObservableObject {
                 HotkeyManager.shared.toggle()
                 return nil
             }
-            // Escキーでリモートモードから脱出
-            if isRemoteMode && event.getIntegerValueField(.keyboardEventKeycode) == 53 {  // 53 = Escape
-                print("Escape pressed, exiting remote mode")
-                exitRemoteMode()
-                ScreenManager.shared.returnControlToLocal()
-                return nil
+            let kc = event.getIntegerValueField(.keyboardEventKeycode)
+            if kc == 53 {  // Escape
+                // パニック脱出: 600ms以内に3回Esc連打 → 全状態を強制リセット（リモートモード外でも有効）
+                let now = CFAbsoluteTimeGetCurrent()
+                escPressTimestamps.append(now)
+                escPressTimestamps.removeAll { now - $0 > panicWindow }
+                if escPressTimestamps.count >= panicCount {
+                    print("[Panic] Triple-Esc detected — emergency reset")
+                    escPressTimestamps.removeAll()
+                    panicReset()
+                    return nil
+                }
+                // 通常Escでもリモートモードから脱出
+                if isRemoteMode {
+                    print("Escape pressed, exiting remote mode")
+                    exitRemoteMode()
+                    ScreenManager.shared.returnControlToLocal()
+                    InputTransmitter.shared.stopTransmitting()
+                    return nil
+                }
             }
             handleKeyEvent(event: event, isDown: true)
         case .keyUp:
@@ -274,70 +312,86 @@ class InputCapture: ObservableObject {
 
     private func handleMouseMove(event: CGEvent) {
         if isRemoteMode {
-            // リモートモード: デルタ値で仮想カーソルを移動
+            // リモートモード: デルタ値でピアunion座標系の仮想カーソルを移動
             let deltaX = event.getDoubleValueField(.mouseEventDeltaX)
             let deltaY = event.getDoubleValueField(.mouseEventDeltaY)
 
             virtualCursorPosition.x += CGFloat(deltaX)
             virtualCursorPosition.y += CGFloat(deltaY)
 
-            // リモート画面のサイズを取得
-            if let targetId = InputTransmitter.shared.currentTargetPeerId,
-               let remoteScreen = ScreenManager.shared.remoteScreens.first(where: { $0.id == targetId }) {
-                // リモート画面の接続方向に基づいて戻り判定
-                let shouldReturn: Bool
-                switch remoteScreen.attachedEdge {
-                case .right:
-                    shouldReturn = virtualCursorPosition.x < 0
+            guard let targetPeerId = InputTransmitter.shared.currentTargetPeerId else {
+                print("[InputCapture] No target peer, returning to local")
+                forceReturnToLocal()
+                return
+            }
+
+            let peerDisplays = ScreenManager.shared.displays(forPeer: targetPeerId)
+            guard !peerDisplays.isEmpty else {
+                print("[InputCapture] No displays for peer \(targetPeerId), returning to local")
+                forceReturnToLocal()
+                return
+            }
+
+            // 仮想カーソルが「貼り付き辺を越えてピアの範囲外に出たか」を判定
+            // 各ディスプレイの貼り付け辺を超えたら、その辺の方向に出たとみなす
+            var returnEdge: ScreenManager.RemoteScreen.Edge?
+            for d in peerDisplays {
+                let dRect = CGRect(x: d.peerOriginX, y: d.peerOriginY, width: d.width, height: d.height)
+                guard dRect.contains(virtualCursorPosition) else { continue }
+                // このディスプレイ内にいる時、貼り付き辺を超えたら戻る
+                switch d.attachedEdge {
+                case .right:  // ホストの右にリモート → 戻りはリモートの左方向
+                    if virtualCursorPosition.x < dRect.minX + 0.5 { returnEdge = d.attachedEdge }
                 case .left:
-                    shouldReturn = virtualCursorPosition.x > remoteScreen.width
+                    if virtualCursorPosition.x > dRect.maxX - 0.5 { returnEdge = d.attachedEdge }
                 case .bottom:
-                    shouldReturn = virtualCursorPosition.y < 0
+                    if virtualCursorPosition.y < dRect.minY + 0.5 { returnEdge = d.attachedEdge }
                 case .top:
-                    shouldReturn = virtualCursorPosition.y > remoteScreen.height
+                    if virtualCursorPosition.y > dRect.maxY - 0.5 { returnEdge = d.attachedEdge }
                 }
+                if returnEdge != nil { break }
+            }
 
-                if shouldReturn {
-                    print("[InputCapture] Edge reached, returning to local (edge: \(remoteScreen.attachedEdge))")
-                    edgeCooldownUntil = Date().addingTimeInterval(0.5)
-                    exitRemoteMode()
-                    ScreenManager.shared.returnControlToLocal()
-                    InputTransmitter.shared.stopTransmitting()
+            // どのディスプレイにも属さない位置 = ピア画面外 → 即座に戻る
+            // （各ディスプレイのcontains判定はattachedTo設定に関係なく実行する）
+            let inAnyDisplay = peerDisplays.contains { d in
+                CGRect(x: d.peerOriginX, y: d.peerOriginY, width: d.width, height: d.height).contains(virtualCursorPosition)
+            }
 
-                    // カーソルをエッジから内側に移動して再トリガー防止
-                    let inset: CGFloat = 10
-                    if let primaryHeight = NSScreen.screens.first?.frame.height,
-                       let sourceId = ScreenManager.shared.transitionSourceScreen,
-                       let sourceScreen = ScreenManager.shared.localScreens.first(where: { $0.id == sourceId }) {
-                        let frame = ScreenManager.shared.appKitToQuartz(sourceScreen.frame, primaryHeight: primaryHeight)
-                        var returnPos = lastMousePosition
-                        switch remoteScreen.attachedEdge {
-                        case .right:
-                            returnPos.x = frame.maxX - inset
-                        case .left:
-                            returnPos.x = frame.minX + inset
-                        case .bottom:
-                            returnPos.y = frame.maxY - inset
-                        case .top:
-                            returnPos.y = frame.minY + inset
-                        }
-                        moveCursor(to: returnPos)
-                    }
-                    return
-                }
-
-                // 画面範囲内にクランプ
-                virtualCursorPosition.x = max(0, min(virtualCursorPosition.x, remoteScreen.width))
-                virtualCursorPosition.y = max(0, min(virtualCursorPosition.y, remoteScreen.height))
-            } else {
-                // リモート画面が見つからない場合は即座にローカルに戻る
-                print("[InputCapture] Remote screen not found, returning to local")
+            if returnEdge != nil || !inAnyDisplay {
+                print("[InputCapture] Edge reached or out of peer bounds, returning to local")
+                let edge = returnEdge
                 edgeCooldownUntil = Date().addingTimeInterval(0.5)
                 exitRemoteMode()
                 ScreenManager.shared.returnControlToLocal()
                 InputTransmitter.shared.stopTransmitting()
+
+                // カーソルをエッジから内側に戻して再トリガー防止
+                let inset: CGFloat = 10
+                if let primaryHeight = NSScreen.screens.first?.frame.height,
+                   let sourceId = ScreenManager.shared.transitionSourceScreen,
+                   let sourceScreen = ScreenManager.shared.localScreens.first(where: { $0.id == sourceId }) {
+                    let frame = ScreenManager.shared.appKitToQuartz(sourceScreen.frame, primaryHeight: primaryHeight)
+                    var returnPos = lastMousePosition
+                    switch edge ?? .right {
+                    case .right:
+                        returnPos.x = frame.maxX - inset
+                    case .left:
+                        returnPos.x = frame.minX + inset
+                    case .bottom:
+                        returnPos.y = frame.maxY - inset
+                    case .top:
+                        returnPos.y = frame.minY + inset
+                    }
+                    moveCursor(to: returnPos)
+                }
                 return
             }
+
+            // ピアunionの矩形範囲にクランプ
+            let peerUnion = ScreenManager.shared.peerUnion(peerId: targetPeerId)
+            virtualCursorPosition.x = max(peerUnion.minX, min(virtualCursorPosition.x, peerUnion.maxX))
+            virtualCursorPosition.y = max(peerUnion.minY, min(virtualCursorPosition.y, peerUnion.maxY))
 
             onCursorMove?(virtualCursorPosition)
         } else {
@@ -424,5 +478,44 @@ class InputCapture: ObservableObject {
     /// カーソル位置を取得
     func getCursorPosition() -> CGPoint {
         return lastMousePosition
+    }
+
+    /// 緊急時にローカルに戻る共通処理
+    private func forceReturnToLocal() {
+        edgeCooldownUntil = Date().addingTimeInterval(0.5)
+        exitRemoteMode()
+        ScreenManager.shared.returnControlToLocal()
+        InputTransmitter.shared.stopTransmitting()
+    }
+
+    /// パニック脱出: あらゆる状態を強制リセットしてカーソルを解放
+    /// 通常のexitRemoteMode経路が失敗していても確実にロックを解除する最終手段
+    func panicReset() {
+        // 1. カーソル関連付けを最優先で復元（他の処理が失敗しても確実に解除）
+        CGAssociateMouseAndMouseCursorPosition(1)
+
+        // 2. 全状態をクリア
+        isRemoteMode = false
+        stopWatchdog()
+        InputTransmitter.shared.stopTransmitting()
+        ScreenManager.shared.returnControlToLocal()
+
+        // 3. listenOnlyタップで再起動（イベント消費しない安全モード）
+        let wasCapturing = isCapturing
+        if wasCapturing {
+            stopCapturing()
+        }
+        useDefaultTap = false
+        if wasCapturing {
+            startCapturing()
+        }
+
+        // 4. 念押しでもう一度
+        CGAssociateMouseAndMouseCursorPosition(1)
+
+        // 通知音（ユーザーへのフィードバック）
+        NSSound(named: "Submarine")?.play()
+
+        print("[Panic] Reset complete — cursor released, remote mode disabled")
     }
 }

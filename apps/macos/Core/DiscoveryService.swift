@@ -49,6 +49,7 @@ class DiscoveryService: ObservableObject {
         let hostname: String
         let screenWidth: Int
         let screenHeight: Int
+        let displays: [DisplayInfo]  // 物理ディスプレイ単位の情報
     }
 
     // MARK: - Lifecycle
@@ -60,19 +61,57 @@ class DiscoveryService: ObservableObject {
     private func setupLocalDeviceInfo() {
         let deviceId = getDeviceId()
         let hostname = Host.current().localizedName ?? "Mac"
-        let screen = NSScreen.main
 
-        // ポイント単位のサイズを使用（InputCaptureのデルタがポイント単位のため統一）
-        let width = Int(screen?.frame.width ?? 1920)
-        let height = Int(screen?.frame.height ?? 1080)
+        // 仮想デスクトップ全体（全ディスプレイの和集合）のサイズを計算
+        let unionAppKit = NSScreen.screens.reduce(CGRect.null) { $0.union($1.frame) }
+        let primaryHeight = NSScreen.screens.first?.frame.height ?? 0
+        let width = Int(unionAppKit.isNull ? 1920 : unionAppKit.width)
+        let height = Int(unionAppKit.isNull ? 1080 : unionAppKit.height)
 
-        print("[DeviceInfo] Screen size - Points: \(width)x\(height)")
+        // 各物理ディスプレイの位置をunion左上原点（Quartz: Y↓）で表現
+        // unionAppKit.minX/minY（AppKit, Y↑）を基準にずらす
+        var displays: [DisplayInfo] = []
+        for screen in NSScreen.screens {
+            let displayId: String
+            if let displayNum = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID {
+                displayId = "display_\(displayNum)"
+            } else {
+                displayId = "display_\(displays.count)"
+            }
+            let isMain = screen == NSScreen.main
+
+            // AppKit座標 → union相対 → Quartz変換
+            // AppKit: y軸上向き、原点はprimary左下
+            // Union相対AppKit: x = screen.x - union.minX, y = screen.y - union.minY
+            let relAppKitX = screen.frame.origin.x - unionAppKit.minX
+            let relAppKitY = screen.frame.origin.y - unionAppKit.minY
+
+            // union空間で「画面の上端」のY座標(Quartz, Y↓)
+            // unionの高さからAppKitの「画面上端」までの距離
+            let appKitTopY = relAppKitY + screen.frame.height
+            let quartzOriginY = unionAppKit.height - appKitTopY
+
+            let info = DisplayInfo(
+                id: displayId,
+                name: isMain ? "メインディスプレイ" : "ディスプレイ \(displays.count + 1)",
+                originX: Double(relAppKitX),
+                originY: Double(quartzOriginY),
+                width: Double(screen.frame.width),
+                height: Double(screen.frame.height),
+                isMain: isMain
+            )
+            displays.append(info)
+            print("[DeviceInfo]   display \(displayId) at union(\(Int(info.originX)),\(Int(info.originY))) size \(Int(info.width))x\(Int(info.height)) main=\(isMain)")
+        }
+
+        print("[DeviceInfo] Virtual desktop size - Points: \(width)x\(height) (screens: \(displays.count), primaryHeight: \(primaryHeight))")
 
         localDeviceInfo = DeviceInfo(
             deviceId: deviceId,
             hostname: hostname,
             screenWidth: width,
-            screenHeight: height
+            screenHeight: height,
+            displays: displays
         )
     }
 
@@ -150,21 +189,28 @@ class DiscoveryService: ObservableObject {
 
     private func handleBrowseResults(_ results: Set<NWBrowser.Result>) {
         var peers: [Peer] = []
+        let myDeviceId = localDeviceInfo?.deviceId
 
         for result in results {
             if case .service(let name, let type, let domain, _) = result.endpoint {
-                // 自分自身は除外
-                if name == localDeviceInfo?.hostname {
+                // TXTレコードからデバイス情報を取得（自己除外判定にも使う）
+                var deviceInfo: DeviceInfoMessage?
+                if case .bonjour(let txtRecord) = result.metadata {
+                    deviceInfo = parseDeviceInfo(from: txtRecord)
+                }
+
+                // 自分自身は device_id で除外（同名Mac対策）
+                // TXTが取れない場合のフォールバックとしてhostname比較も併用
+                if let theirId = deviceInfo?.deviceId, theirId == myDeviceId {
+                    continue
+                }
+                if deviceInfo == nil && name == localDeviceInfo?.hostname {
                     continue
                 }
 
                 let id = "\(name).\(type).\(domain)"
                 var peer = Peer(id: id, name: name, endpoint: result.endpoint)
-
-                // TXTレコードからデバイス情報を取得
-                if case .bonjour(let txtRecord) = result.metadata {
-                    peer.deviceInfo = parseDeviceInfo(from: txtRecord)
-                }
+                peer.deviceInfo = deviceInfo
 
                 peers.append(peer)
             }
@@ -249,6 +295,9 @@ class DiscoveryService: ObservableObject {
         webSocketServer?.onMessageReceived = { [weak self] clientId, rawMessage in
             guard let self = self else { return }
 
+            // ピア無音検知ウォッチドッグのリセット
+            InputCapture.shared.peerMessageReceived()
+
             // レート制限チェック
             let now = Date()
             var rate = self.messageRates[clientId] ?? (count: 0, resetTime: now)
@@ -281,6 +330,13 @@ class DiscoveryService: ObservableObject {
             }
 
             switch type {
+            case .ping:
+                // pongで即応答（ピア生存確認用）
+                let pong = "{\"type\":\"pong\",\"timestamp\":\(Date().timeIntervalSince1970)}"
+                self.webSocketServer?.send(pong, to: clientId)
+                return
+            case .pong:
+                return
             case .deviceInfo:
                 if let msg = MessageEncoder.shared.decode(DeviceInfoMessage.self, from: message) {
                     // peerIdを取得（discoveredPeersから、またはhostnameベース）
@@ -290,13 +346,18 @@ class DiscoveryService: ObservableObject {
                     self.serverClientMapping[clientId] = peerId
                     print("[DeviceInfo] Mapped clientId \(clientId) -> peerId \(peerId)")
 
-                    ScreenManager.shared.addRemoteScreen(
-                        deviceId: peerId,
-                        name: msg.hostname,
-                        width: CGFloat(msg.screenWidth),
-                        height: CGFloat(msg.screenHeight)
-                    )
-                    print("[DeviceInfo] Added remote screen (server side) with peerId: \(peerId), hostname: \(msg.hostname)")
+                    if let screens = msg.screens, !screens.isEmpty {
+                        ScreenManager.shared.setRemoteDisplays(peerId: peerId, peerName: msg.hostname, displays: screens)
+                    } else {
+                        // 後方互換: screensが無ければunion情報のみで単一ディスプレイ扱い
+                        ScreenManager.shared.addRemoteScreen(
+                            deviceId: peerId,
+                            name: msg.hostname,
+                            width: CGFloat(msg.screenWidth),
+                            height: CGFloat(msg.screenHeight)
+                        )
+                    }
+                    print("[DeviceInfo] Added \(msg.screens?.count ?? 1) display(s) for peer \(msg.hostname) [\(peerId)]")
 
                     // 接続完了をconnectedPeersに追加
                     if let peer = self.discoveredPeers.first(where: { $0.id == peerId }) {
@@ -457,6 +518,7 @@ class DiscoveryService: ObservableObject {
             deviceType: .mac,
             screenWidth: info.screenWidth,
             screenHeight: info.screenHeight,
+            screens: info.displays,
             publicKey: CryptoManager.shared.publicKeyBase64
         )
     }

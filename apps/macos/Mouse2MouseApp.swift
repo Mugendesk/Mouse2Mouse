@@ -31,6 +31,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // クラッシュ時のカーソルロック解除ハンドラー
         installCrashSafetyHandlers()
 
+        // スリープ・スクリーンロック対策
+        installSystemEventHandlers()
+
         // Dockアイコンを非表示
         NSApp.setActivationPolicy(.accessory)
 
@@ -133,6 +136,36 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         atexit {
+            CGAssociateMouseAndMouseCursorPosition(1)
+        }
+    }
+
+    // MARK: - System Event Handlers (sleep / lock / wake)
+
+    private func installSystemEventHandlers() {
+        let nc = NSWorkspace.shared.notificationCenter
+
+        // スリープ前にリモートモード解除（カーソルロック持ち越し防止）
+        nc.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { _ in
+            print("[System] willSleep - exiting remote mode")
+            InputCapture.shared.exitRemoteMode()
+            InputTransmitter.shared.stopTransmitting()
+            ScreenManager.shared.returnControlToLocal()
+            CGAssociateMouseAndMouseCursorPosition(1)
+        }
+
+        // 画面ロック前にもリモートモード解除
+        nc.addObserver(forName: NSWorkspace.screensDidSleepNotification, object: nil, queue: .main) { _ in
+            print("[System] screensDidSleep - exiting remote mode")
+            InputCapture.shared.exitRemoteMode()
+            InputTransmitter.shared.stopTransmitting()
+            ScreenManager.shared.returnControlToLocal()
+            CGAssociateMouseAndMouseCursorPosition(1)
+        }
+
+        // 起床時もカーソル関連付けを念のため復元
+        nc.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { _ in
+            print("[System] didWake - restoring cursor association")
             CGAssociateMouseAndMouseCursorPosition(1)
         }
     }

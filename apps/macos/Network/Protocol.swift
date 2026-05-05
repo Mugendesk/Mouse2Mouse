@@ -168,13 +168,36 @@ enum DeviceType: String, Codable {
     case ios
 }
 
+/// 物理ディスプレイ情報（ピアの仮想デスクトップ内の位置・サイズ）
+/// 座標系: ピアunion左上を原点としたQuartz座標系（Y↓）
+struct DisplayInfo: Codable, Hashable {
+    let id: String          // ピア端末のローカルscreen id (例: "display_12345")
+    let name: String
+    let originX: Double     // ピアunion内のX原点
+    let originY: Double     // ピアunion内のY原点
+    let width: Double
+    let height: Double
+    let isMain: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case originX = "origin_x"
+        case originY = "origin_y"
+        case width
+        case height
+        case isMain = "is_main"
+    }
+}
+
 struct DeviceInfoMessage: Codable {
     let type: String = "device_info"
     let deviceId: String
     let hostname: String
     let deviceType: DeviceType
-    let screenWidth: Int
-    let screenHeight: Int
+    let screenWidth: Int       // ピアunion全体の幅（後方互換）
+    let screenHeight: Int      // ピアunion全体の高さ（後方互換）
+    let screens: [DisplayInfo]? // 物理ディスプレイ単位の情報（v2+）
     let version: String
     let publicKey: String?  // Base64 encoded X25519 public key (TOFU)
     let timestamp: Double
@@ -186,18 +209,20 @@ struct DeviceInfoMessage: Codable {
         case deviceType = "device_type"
         case screenWidth = "screen_width"
         case screenHeight = "screen_height"
+        case screens
         case version
         case publicKey = "public_key"
         case timestamp
     }
 
-    init(deviceId: String, hostname: String, deviceType: DeviceType, screenWidth: Int, screenHeight: Int, publicKey: String? = nil) {
+    init(deviceId: String, hostname: String, deviceType: DeviceType, screenWidth: Int, screenHeight: Int, screens: [DisplayInfo]? = nil, publicKey: String? = nil) {
         self.deviceId = deviceId
         self.hostname = hostname
         self.deviceType = deviceType
         self.screenWidth = screenWidth
         self.screenHeight = screenHeight
-        self.version = "1"
+        self.screens = screens
+        self.version = "2"
         self.publicKey = publicKey
         self.timestamp = Date().timeIntervalSince1970
     }

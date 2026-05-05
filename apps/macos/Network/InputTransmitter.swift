@@ -9,6 +9,7 @@ class InputTransmitter {
     private let encoder = MessageEncoder.shared
     private var isTransmitting = false
     private var targetPeerId: String?
+    private var heartbeatTimer: DispatchSourceTimer?
 
     var currentTargetPeerId: String? { targetPeerId }
 
@@ -48,14 +49,36 @@ class InputTransmitter {
         targetPeerId = peerId
         isTransmitting = true
         InputCapture.shared.enterRemoteMode(entryPoint: entryPoint)
+        startHeartbeat()
         print("Started transmitting to \(peerId) at entry \(entryPoint)")
     }
 
     func stopTransmitting() {
+        stopHeartbeat()
         isTransmitting = false
         targetPeerId = nil
         InputCapture.shared.exitRemoteMode()
         print("Stopped transmitting")
+    }
+
+    // MARK: - Heartbeat (ピア生存確認)
+
+    private func startHeartbeat() {
+        stopHeartbeat()
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(deadline: .now() + 0.5, repeating: 0.5)
+        timer.setEventHandler { [weak self] in
+            guard let self = self, self.isTransmitting, let peerId = self.targetPeerId else { return }
+            let ping = "{\"type\":\"ping\",\"timestamp\":\(Date().timeIntervalSince1970)}"
+            DiscoveryService.shared.send(ping, to: peerId, encrypt: false)
+        }
+        timer.resume()
+        heartbeatTimer = timer
+    }
+
+    private func stopHeartbeat() {
+        heartbeatTimer?.cancel()
+        heartbeatTimer = nil
     }
 
     // MARK: - Sending Messages
@@ -66,22 +89,21 @@ class InputTransmitter {
             return
         }
 
-        // リモート画面の座標に変換
-        guard let remoteScreen = ScreenManager.shared.remoteScreens.first(where: { $0.id == peerId }) else {
-            print("[InputTransmitter] Remote screen not found for \(peerId)")
-            print("[InputTransmitter] Available screens: \(ScreenManager.shared.remoteScreens.map { $0.id })")
+        // ピアunion矩形を取得（positionはunion座標系）
+        let peerUnion = ScreenManager.shared.peerUnion(peerId: peerId)
+        guard peerUnion.width > 0, peerUnion.height > 0 else {
+            print("[InputTransmitter] Empty peer union for \(peerId)")
             return
         }
 
-        // 正規化座標を計算（0.0-1.0の範囲）
-        let normalizedX = position.x / remoteScreen.width
-        let normalizedY = position.y / remoteScreen.height
+        // ピアunion全体に対する正規化座標(0.0-1.0)
+        let normalizedX = (position.x - peerUnion.minX) / peerUnion.width
+        let normalizedY = (position.y - peerUnion.minY) / peerUnion.height
 
         let message = CursorMoveMessage(x: Double(normalizedX), y: Double(normalizedY))
 
         if let json = encoder.encode(message) {
             sendToTarget(json)
-            // 10回に1回だけログ出力（パフォーマンス対策）
             if Int.random(in: 0..<10) == 0 {
                 print("[InputTransmitter] Sending cursor: (\(String(format: "%.2f", normalizedX)), \(String(format: "%.2f", normalizedY)))")
             }
@@ -147,19 +169,25 @@ class InputTransmitter {
         print("[InputTransmitter] Edge hit: target=\(edgeHit.targetDevice.id), entry=\(edgeHit.entryPosition)")
 
         let targetScreen = edgeHit.targetDevice
+        let peerId = targetScreen.peerId
 
-        // 制御権を移譲
-        let entryX = Double(edgeHit.entryPosition.x / targetScreen.width)
-        let entryY = Double(edgeHit.entryPosition.y / targetScreen.height)
-        let message = ControlTransferMessage(to: targetScreen.id, entryX: entryX, entryY: entryY)
+        // 制御権を移譲（entryPositionはピアunion座標、unionサイズで正規化）
+        let peerUnion = ScreenManager.shared.peerUnion(peerId: peerId)
+        guard peerUnion.width > 0, peerUnion.height > 0 else {
+            print("[InputTransmitter] Empty peer union for \(peerId)")
+            return
+        }
+        let entryX = Double((edgeHit.entryPosition.x - peerUnion.minX) / peerUnion.width)
+        let entryY = Double((edgeHit.entryPosition.y - peerUnion.minY) / peerUnion.height)
+        let message = ControlTransferMessage(to: peerId, entryX: entryX, entryY: entryY)
 
         if let json = encoder.encode(message) {
-            DiscoveryService.shared.send(json, to: targetScreen.id)
+            DiscoveryService.shared.send(json, to: peerId)
         }
 
-        // リモートモードに入る（エントリーポイントを渡す）
-        startTransmitting(to: targetScreen.id, entryPoint: edgeHit.entryPosition)
-        ScreenManager.shared.transferControlTo(deviceId: targetScreen.id, sourceScreenId: edgeHit.sourceScreenId)
+        // リモートモードに入る（エントリーポイントはピアunion座標）
+        startTransmitting(to: peerId, entryPoint: edgeHit.entryPosition)
+        ScreenManager.shared.transferControlTo(deviceId: peerId, sourceScreenId: edgeHit.sourceScreenId)
     }
 
     // MARK: - Helpers

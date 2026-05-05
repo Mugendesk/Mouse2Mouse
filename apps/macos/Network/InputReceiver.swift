@@ -9,6 +9,10 @@ class InputReceiver {
 
     private var virtualCursorPosition: CGPoint = .zero
 
+    // スクロール端数の累積（Int32への切り捨てで失われる微小デルタを保持）
+    private var scrollResidualX: Double = 0
+    private var scrollResidualY: Double = 0
+
     private init() {}
 
     /// 外部からカーソル位置を設定（controlTransfer受信時に初期位置を同期）
@@ -31,14 +35,16 @@ class InputReceiver {
         // 注意: カーソル移動は役割に関係なく処理する
         // （Hostからの戻り操作のため）
 
-        guard let screen = NSScreen.main else {
-            print("[InputReceiver] ERROR: No main screen")
+        // 仮想デスクトップ全体（全ディスプレイの和集合）を基準に正規化座標を解釈
+        // macOSが絶対Quartz座標から自動で適切な物理ディスプレイにカーソルを配置する
+        let union = ScreenManager.shared.localVirtualDesktopQuartz()
+        guard union.width > 0, union.height > 0 else {
+            print("[InputReceiver] ERROR: No valid virtual desktop")
             return
         }
 
-        // 正規化座標(0-1)から画面座標に変換
-        let actualX = CGFloat(x) * screen.frame.width
-        let actualY = CGFloat(y) * screen.frame.height
+        let actualX = union.minX + CGFloat(x) * union.width
+        let actualY = union.minY + CGFloat(y) * union.height
 
         let cgPoint = CGPoint(x: actualX, y: actualY)
         virtualCursorPosition = cgPoint
@@ -110,12 +116,26 @@ class InputReceiver {
     // MARK: - Scroll
 
     func handleScroll(dx: Double, dy: Double) {
+        // 端数を累積して切り捨てによる精度ロスを防ぐ（トラックパッドの慣性スクロール対応）
+        scrollResidualX += dx
+        scrollResidualY += dy
+
+        let intDx = Int32(scrollResidualX.rounded(.towardZero))
+        let intDy = Int32(scrollResidualY.rounded(.towardZero))
+
+        // 整数化した分だけ累積から差し引く（端数は次回に持ち越し）
+        scrollResidualX -= Double(intDx)
+        scrollResidualY -= Double(intDy)
+
+        // 両軸とも0なら発火しない（無駄なイベントを避ける）
+        guard intDx != 0 || intDy != 0 else { return }
+
         let event = CGEvent(
             scrollWheelEvent2Source: nil,
             units: .pixel,
             wheelCount: 2,
-            wheel1: Int32(dy),
-            wheel2: Int32(dx),
+            wheel1: intDy,
+            wheel2: intDx,
             wheel3: 0
         )
         event?.post(tap: .cghidEventTap)

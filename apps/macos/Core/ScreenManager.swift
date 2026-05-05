@@ -40,11 +40,20 @@ class ScreenManager: ObservableObject {
         var height: CGFloat { frame.height }
     }
 
+    /// リモートピアの物理ディスプレイ1台を表す
+    /// idは "<peerId>:<peerDisplayId>" の合成ID（複数ディスプレイを区別するため）
     struct RemoteScreen: Identifiable, Codable {
-        let id: String  // device_id
+        let id: String  // 合成ID: "peerId:peerDisplayId"
+        let peerId: String           // 所属ピアのdevice_id
+        let peerDisplayId: String    // ピア側のローカルscreen id
         var name: String
         var width: CGFloat
         var height: CGFloat
+
+        // ピアunion座標系内のこのディスプレイの原点（Quartz, Y↓）
+        var peerOriginX: CGFloat
+        var peerOriginY: CGFloat
+        var isMain: Bool
 
         // 自由配置用の座標（ローカル画面との相対位置）
         var offsetX: CGFloat  // ローカル画面からのX方向オフセット
@@ -59,7 +68,11 @@ class ScreenManager: ObservableObject {
             case bottom
         }
 
-        // 計算プロパティ: この画面の仮想座標
+        static func makeId(peerId: String, peerDisplayId: String) -> String {
+            return "\(peerId):\(peerDisplayId)"
+        }
+
+        // 計算プロパティ: この画面の仮想座標（ホスト側のレイアウト用）
         func virtualFrame(relativeTo localFrame: CGRect) -> CGRect {
             let x: CGFloat
             let y: CGFloat
@@ -176,37 +189,81 @@ class ScreenManager: ObservableObject {
 
     // MARK: - Remote Screen Management
 
+    /// 後方互換: 単一画面（union情報のみ）として登録
+    /// 新しい呼び出し側はsetRemoteDisplaysを使うこと
     func addRemoteScreen(deviceId: String, name: String, width: CGFloat, height: CGFloat) {
-        // デフォルトはメイン画面の右側に配置
-        let mainScreen = localScreens.first(where: { $0.isMain }) ?? localScreens.first
-
-        let screen = RemoteScreen(
-            id: deviceId,
+        let display = DisplayInfo(
+            id: "main",
             name: name,
-            width: width,
-            height: height,
-            offsetX: 0,
-            offsetY: 0,
-            attachedTo: mainScreen?.id,
-            attachedEdge: .right
+            originX: 0,
+            originY: 0,
+            width: Double(width),
+            height: Double(height),
+            isMain: true
         )
+        setRemoteDisplays(peerId: deviceId, peerName: name, displays: [display])
+    }
 
-        if let index = remoteScreens.firstIndex(where: { $0.id == deviceId }) {
-            // 既存の配置設定を保持しつつ更新
-            var existing = remoteScreens[index]
-            existing.name = name
-            existing.width = width
-            existing.height = height
-            remoteScreens[index] = existing
-        } else {
+    /// ピアの全物理ディスプレイを登録（既存はマージして配置設定を保持）
+    func setRemoteDisplays(peerId: String, peerName: String, displays: [DisplayInfo]) {
+        let mainLocalScreen = localScreens.first(where: { $0.isMain }) ?? localScreens.first
+
+        // このピアの既存エントリを取得（配置設定を保持するため）
+        let existing = remoteScreens.filter { $0.peerId == peerId }
+        let existingByDisplayId = Dictionary(uniqueKeysWithValues: existing.map { ($0.peerDisplayId, $0) })
+
+        // このピアの既存エントリを削除
+        remoteScreens.removeAll { $0.peerId == peerId }
+
+        // 新しいdisplay情報でエントリを構築
+        for display in displays {
+            let screenId = RemoteScreen.makeId(peerId: peerId, peerDisplayId: display.id)
+            let prior = existingByDisplayId[display.id]
+
+            let screen = RemoteScreen(
+                id: screenId,
+                peerId: peerId,
+                peerDisplayId: display.id,
+                name: display.name.isEmpty ? "\(peerName) - \(display.id)" : "\(peerName) / \(display.name)",
+                width: CGFloat(display.width),
+                height: CGFloat(display.height),
+                peerOriginX: CGFloat(display.originX),
+                peerOriginY: CGFloat(display.originY),
+                isMain: display.isMain,
+                offsetX: prior?.offsetX ?? 0,
+                offsetY: prior?.offsetY ?? 0,
+                // 既存設定があれば保持。なければmainディスプレイのみメイン画面右、それ以外は配置なし
+                attachedTo: prior?.attachedTo ?? (display.isMain ? mainLocalScreen?.id : nil),
+                attachedEdge: prior?.attachedEdge ?? .right
+            )
             remoteScreens.append(screen)
         }
 
-        print("Added/Updated remote screen: \(name) (\(Int(width))x\(Int(height)))")
+        print("[ScreenManager] Set \(displays.count) display(s) for peer \(peerName) [\(peerId)]")
     }
 
+    /// ピアの全ディスプレイを削除
+    func removePeer(peerId: String) {
+        remoteScreens.removeAll { $0.peerId == peerId }
+    }
+
+    /// 後方互換用エイリアス
     func removeRemoteScreen(deviceId: String) {
-        remoteScreens.removeAll { $0.id == deviceId }
+        removePeer(peerId: deviceId)
+    }
+
+    /// 指定ピアの全ディスプレイを返す
+    func displays(forPeer peerId: String) -> [RemoteScreen] {
+        return remoteScreens.filter { $0.peerId == peerId }
+    }
+
+    /// 指定ピアの仮想デスクトップunion矩形（Quartz座標系、原点=union左上）
+    func peerUnion(peerId: String) -> CGRect {
+        let peerDisplays = displays(forPeer: peerId)
+        guard !peerDisplays.isEmpty else { return .zero }
+        return peerDisplays.reduce(CGRect.null) { acc, d in
+            acc.union(CGRect(x: d.peerOriginX, y: d.peerOriginY, width: d.width, height: d.height))
+        }
     }
 
     func updateRemoteScreenPosition(
@@ -268,7 +325,7 @@ class ScreenManager: ObservableObject {
     struct EdgeHit {
         let direction: RemoteScreen.Edge
         let targetDevice: RemoteScreen
-        let entryPosition: CGPoint  // 遷移先での開始位置（実座標）
+        let entryPosition: CGPoint  // ピアunion座標系でのエントリ位置（Quartz, Y↓）
         let sourceScreenId: String  // どのローカル画面から遷移したか
     }
 
@@ -280,6 +337,22 @@ class ScreenManager: ObservableObject {
             width: rect.width,
             height: rect.height
         )
+    }
+
+    /// 全ローカルディスプレイの和集合（仮想デスクトップ）を返す（AppKit座標系）
+    /// 単一画面の場合はそのframe、複数の場合はバウンディングボックス
+    func localVirtualDesktopAppKit() -> CGRect {
+        let union = NSScreen.screens.reduce(CGRect.null) { $0.union($1.frame) }
+        return union.isNull ? .zero : union
+    }
+
+    /// 全ローカルディスプレイの和集合をQuartz座標系で返す
+    /// CGEvent.postに渡すカーソル座標の基準として使う
+    func localVirtualDesktopQuartz() -> CGRect {
+        guard let primaryHeight = NSScreen.screens.first?.frame.height else {
+            return .zero
+        }
+        return appKitToQuartz(localVirtualDesktopAppKit(), primaryHeight: primaryHeight)
     }
 
     /// カーソルが画面端に達したかチェック（マルチディスプレイ対応）
@@ -317,12 +390,17 @@ class ScreenManager: ObservableObject {
                 let remoteFrameAppKit = remoteScreen.virtualFrame(relativeTo: localScreen.frame)
                 let remoteFrame = appKitToQuartz(remoteFrameAppKit, primaryHeight: primaryHeight)
 
+                // entryPositionはピアunion座標系: ディスプレイローカル座標 + peerOriginX/Y
+                let pox = remoteScreen.peerOriginX
+                let poy = remoteScreen.peerOriginY
+
                 switch remoteScreen.attachedEdge {
                 case .left:
                     if cursorPosition.x <= frame.minX + threshold {
                         if cursorPosition.y >= remoteFrame.minY && cursorPosition.y <= remoteFrame.maxY {
                             let entryY = cursorPosition.y - remoteFrame.minY
-                            let entryPoint = CGPoint(x: remoteScreen.width - 1, y: entryY)
+                            // ディスプレイの右端から入る（ローカルのleft方向 → リモートの右端）
+                            let entryPoint = CGPoint(x: pox + remoteScreen.width - 1, y: poy + entryY)
                             return EdgeHit(
                                 direction: .left,
                                 targetDevice: remoteScreen,
@@ -336,7 +414,7 @@ class ScreenManager: ObservableObject {
                     if cursorPosition.x >= frame.maxX - threshold {
                         if cursorPosition.y >= remoteFrame.minY && cursorPosition.y <= remoteFrame.maxY {
                             let entryY = cursorPosition.y - remoteFrame.minY
-                            let entryPoint = CGPoint(x: 0, y: entryY)
+                            let entryPoint = CGPoint(x: pox + 0, y: poy + entryY)
                             return EdgeHit(
                                 direction: .right,
                                 targetDevice: remoteScreen,
@@ -347,12 +425,10 @@ class ScreenManager: ObservableObject {
                     }
 
                 case .top:
-                    // リモートが上側 → ローカル画面の上端(Quartz: minY)で発火
                     if cursorPosition.y <= frame.minY + threshold {
                         if cursorPosition.x >= remoteFrame.minX && cursorPosition.x <= remoteFrame.maxX {
                             let entryX = cursorPosition.x - remoteFrame.minX
-                            // リモート画面の下端(Quartz: height-1)から入る
-                            let entryPoint = CGPoint(x: entryX, y: remoteScreen.height - 1)
+                            let entryPoint = CGPoint(x: pox + entryX, y: poy + remoteScreen.height - 1)
                             return EdgeHit(
                                 direction: .top,
                                 targetDevice: remoteScreen,
@@ -363,12 +439,10 @@ class ScreenManager: ObservableObject {
                     }
 
                 case .bottom:
-                    // リモートが下側 → ローカル画面の下端(Quartz: maxY)で発火
                     if cursorPosition.y >= frame.maxY - threshold {
                         if cursorPosition.x >= remoteFrame.minX && cursorPosition.x <= remoteFrame.maxX {
                             let entryX = cursorPosition.x - remoteFrame.minX
-                            // リモート画面の上端(Quartz: 0)から入る
-                            let entryPoint = CGPoint(x: entryX, y: 0)
+                            let entryPoint = CGPoint(x: pox + entryX, y: poy + 0)
                             return EdgeHit(
                                 direction: .bottom,
                                 targetDevice: remoteScreen,
@@ -384,24 +458,17 @@ class ScreenManager: ObservableObject {
         return nil
     }
 
-    /// 正規化座標から実座標(Quartz座標系)に変換（遷移元画面を考慮）
+    /// 正規化座標(0-1)を仮想デスクトップ全体上のQuartz座標に変換
+    /// 受信側がcontrolTransferでカーソルを配置する際に使用
     func denormalizePosition(x: Double, y: Double, forScreenId: String? = nil) -> CGPoint {
-        let screenId = forScreenId ?? transitionSourceScreen
-        let screen = localScreens.first(where: { $0.id == screenId })
-                  ?? localScreens.first(where: { $0.isMain })
-                  ?? localScreens.first
-
-        guard let screen = screen,
-              let primaryHeight = NSScreen.screens.first?.frame.height else {
+        // 仮想デスクトップ全体に対して正規化されている前提
+        let union = localVirtualDesktopQuartz()
+        guard union.width > 0, union.height > 0 else {
             return CGPoint(x: 100, y: 100)
         }
 
-        // CGEventはQuartz座標系なのでAppKitフレームを変換（frameを使用: 正規化座標もframe基準）
-        let quartzFrame = appKitToQuartz(screen.frame, primaryHeight: primaryHeight)
-
-        let actualX = quartzFrame.minX + CGFloat(x) * quartzFrame.width
-        let actualY = quartzFrame.minY + CGFloat(y) * quartzFrame.height
-
+        let actualX = union.minX + CGFloat(x) * union.width
+        let actualY = union.minY + CGFloat(y) * union.height
         return CGPoint(x: actualX, y: actualY)
     }
 
