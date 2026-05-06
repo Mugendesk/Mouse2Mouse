@@ -316,8 +316,10 @@ class InputCapture: ObservableObject {
             let deltaX = event.getDoubleValueField(.mouseEventDeltaX)
             let deltaY = event.getDoubleValueField(.mouseEventDeltaY)
 
-            virtualCursorPosition.x += CGFloat(deltaX)
-            virtualCursorPosition.y += CGFloat(deltaY)
+            let prevPos = virtualCursorPosition
+            var newPos = prevPos
+            newPos.x += CGFloat(deltaX)
+            newPos.y += CGFloat(deltaY)
 
             guard let targetPeerId = InputTransmitter.shared.currentTargetPeerId else {
                 print("[InputCapture] No target peer, returning to local")
@@ -332,35 +334,34 @@ class InputCapture: ObservableObject {
                 return
             }
 
-            // 仮想カーソルが「貼り付き辺を越えてピアの範囲外に出たか」を判定
-            // 各ディスプレイの貼り付け辺を超えたら、その辺の方向に出たとみなす
+            // 直前位置がいたディスプレイを特定（attachedToがあるもののみ戻り判定対象）
+            let sourceDisplay = peerDisplays.first { d in
+                CGRect(x: d.peerOriginX, y: d.peerOriginY, width: d.width, height: d.height)
+                    .contains(prevPos)
+            }
+
+            // 戻り判定: ソースディスプレイの貼り付け辺と「逆方向」に新位置が抜けたら戻る
+            // attachedEdge=右 = devが右側にある → 戻り = 左方向に脱出 (newPos.x < dRect.minX)
+            var shouldReturn = false
             var returnEdge: ScreenManager.RemoteScreen.Edge?
-            for d in peerDisplays {
-                let dRect = CGRect(x: d.peerOriginX, y: d.peerOriginY, width: d.width, height: d.height)
-                guard dRect.contains(virtualCursorPosition) else { continue }
-                // このディスプレイ内にいる時、貼り付き辺を超えたら戻る
-                switch d.attachedEdge {
-                case .right:  // ホストの右にリモート → 戻りはリモートの左方向
-                    if virtualCursorPosition.x < dRect.minX + 0.5 { returnEdge = d.attachedEdge }
+            if let source = sourceDisplay, source.attachedTo != nil {
+                let dRect = CGRect(x: source.peerOriginX, y: source.peerOriginY,
+                                   width: source.width, height: source.height)
+                switch source.attachedEdge {
+                case .right:
+                    if newPos.x < dRect.minX { shouldReturn = true }
                 case .left:
-                    if virtualCursorPosition.x > dRect.maxX - 0.5 { returnEdge = d.attachedEdge }
-                case .bottom:
-                    if virtualCursorPosition.y < dRect.minY + 0.5 { returnEdge = d.attachedEdge }
+                    if newPos.x >= dRect.maxX { shouldReturn = true }
                 case .top:
-                    if virtualCursorPosition.y > dRect.maxY - 0.5 { returnEdge = d.attachedEdge }
+                    if newPos.y >= dRect.maxY { shouldReturn = true }
+                case .bottom:
+                    if newPos.y < dRect.minY { shouldReturn = true }
                 }
-                if returnEdge != nil { break }
+                if shouldReturn { returnEdge = source.attachedEdge }
             }
 
-            // どのディスプレイにも属さない位置 = ピア画面外 → 即座に戻る
-            // （各ディスプレイのcontains判定はattachedTo設定に関係なく実行する）
-            let inAnyDisplay = peerDisplays.contains { d in
-                CGRect(x: d.peerOriginX, y: d.peerOriginY, width: d.width, height: d.height).contains(virtualCursorPosition)
-            }
-
-            if returnEdge != nil || !inAnyDisplay {
-                print("[InputCapture] Edge reached or out of peer bounds, returning to local")
-                let edge = returnEdge
+            if shouldReturn {
+                print("[InputCapture] Returning to local via \(returnEdge?.rawValue ?? "?") edge of \(sourceDisplay?.name ?? "?")")
                 edgeCooldownUntil = Date().addingTimeInterval(0.5)
                 exitRemoteMode()
                 ScreenManager.shared.returnControlToLocal()
@@ -368,12 +369,12 @@ class InputCapture: ObservableObject {
 
                 // カーソルをエッジから内側に戻して再トリガー防止
                 let inset: CGFloat = 10
-                if let primaryHeight = NSScreen.screens.first?.frame.height,
+                if let primaryHeight = ScreenManager.shared.localScreens.first?.frame.height,
                    let sourceId = ScreenManager.shared.transitionSourceScreen,
                    let sourceScreen = ScreenManager.shared.localScreens.first(where: { $0.id == sourceId }) {
                     let frame = ScreenManager.shared.appKitToQuartz(sourceScreen.frame, primaryHeight: primaryHeight)
                     var returnPos = lastMousePosition
-                    switch edge ?? .right {
+                    switch returnEdge ?? .right {
                     case .right:
                         returnPos.x = frame.maxX - inset
                     case .left:
@@ -388,11 +389,13 @@ class InputCapture: ObservableObject {
                 return
             }
 
-            // ピアunionの矩形範囲にクランプ
+            // 戻り判定にかからなかったらピアunion矩形にクランプ
+            // (ピア内ディスプレイ間の遷移はクランプ範囲内で許容される)
             let peerUnion = ScreenManager.shared.peerUnion(peerId: targetPeerId)
-            virtualCursorPosition.x = max(peerUnion.minX, min(virtualCursorPosition.x, peerUnion.maxX))
-            virtualCursorPosition.y = max(peerUnion.minY, min(virtualCursorPosition.y, peerUnion.maxY))
+            newPos.x = max(peerUnion.minX, min(newPos.x, peerUnion.maxX - 0.001))
+            newPos.y = max(peerUnion.minY, min(newPos.y, peerUnion.maxY - 0.001))
 
+            virtualCursorPosition = newPos
             onCursorMove?(virtualCursorPosition)
         } else {
             // 通常モード: 実際のカーソル位置を使用
