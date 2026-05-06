@@ -65,22 +65,27 @@ struct ScreenLayoutView: View {
     private var layoutCanvas: some View {
         GeometryReader { geometry in
             let canvasCenter = CGPoint(x: geometry.size.width / 2, y: geometry.size.height / 2)
+            // 全ローカル画面の和集合の中心をキャンバス中央に揃える
+            let unionAppKit = screenManager.localScreens.reduce(CGRect.null) { $0.union($1.frame) }
+            let unionCenterAppKit = CGPoint(x: unionAppKit.midX, y: unionAppKit.midY)
 
             ZStack {
-                // ローカル画面を描画
+                // ローカル画面を物理配置で描画
                 ForEach(screenManager.localScreens) { screen in
                     LocalScreenView(
                         screen: screen,
+                        unionCenterAppKit: unionCenterAppKit,
                         scale: scale,
                         canvasCenter: canvasCenter
                     )
                 }
 
-                // リモート画面を描画
+                // リモート画面を描画（接続先のローカル画面の物理位置を基準に）
                 ForEach(screenManager.remoteScreens) { remote in
                     RemoteScreenView(
                         remote: remote,
                         localScreens: screenManager.localScreens,
+                        unionCenterAppKit: unionCenterAppKit,
                         scale: scale,
                         canvasCenter: canvasCenter,
                         isDragging: draggedRemoteId == remote.id,
@@ -356,6 +361,7 @@ struct ScreenLayoutView: View {
 
 struct LocalScreenView: View {
     let screen: ScreenManager.LocalScreen
+    let unionCenterAppKit: CGPoint  // 全ローカル画面の和集合の中心
     let scale: CGFloat
     let canvasCenter: CGPoint
 
@@ -363,9 +369,12 @@ struct LocalScreenView: View {
         let scaledWidth = screen.width * scale
         let scaledHeight = screen.height * scale
 
-        // ローカル画面はキャンバス中央に配置（frameは無視）
-        let x = canvasCenter.x - scaledWidth / 2
-        let y = canvasCenter.y - scaledHeight / 2
+        // 物理配置: AppKitフレーム中心からunion中心までのオフセットをスケールしてキャンバス中央からずらす
+        // AppKitはY↑、キャンバスはY↓なのでY軸を反転
+        let dx = (screen.frame.midX - unionCenterAppKit.x) * scale
+        let dy = -(screen.frame.midY - unionCenterAppKit.y) * scale
+        let centerX = canvasCenter.x + dx
+        let centerY = canvasCenter.y + dy
 
         RoundedRectangle(cornerRadius: 4)
             .fill(Color.accentColor.opacity(0.2))
@@ -388,7 +397,7 @@ struct LocalScreenView: View {
                 }
             )
             .frame(width: scaledWidth, height: scaledHeight)
-            .position(x: x + scaledWidth / 2, y: y + scaledHeight / 2)
+            .position(x: centerX, y: centerY)
     }
 }
 
@@ -397,6 +406,7 @@ struct LocalScreenView: View {
 struct RemoteScreenView: View {
     let remote: ScreenManager.RemoteScreen
     let localScreens: [ScreenManager.LocalScreen]
+    let unionCenterAppKit: CGPoint
     let scale: CGFloat
     let canvasCenter: CGPoint
     let isDragging: Bool
@@ -418,10 +428,13 @@ struct RemoteScreenView: View {
         let localScaledWidth = localScreen.width * scale
         let localScaledHeight = localScreen.height * scale
 
-        // エッジに基づいて配置
-        var x = canvasCenter.x - localScaledWidth / 2
-        var y = canvasCenter.y - localScaledHeight / 2
+        // 接続先ローカル画面の物理配置位置（キャンバス上の左上座標）を計算
+        let dx = (localScreen.frame.midX - unionCenterAppKit.x) * scale
+        let dy = -(localScreen.frame.midY - unionCenterAppKit.y) * scale
+        var x = canvasCenter.x + dx - localScaledWidth / 2
+        var y = canvasCenter.y + dy - localScaledHeight / 2
 
+        // エッジに基づいて配置（接続先ローカル画面の辺に貼り付ける）
         switch remote.attachedEdge {
         case .left:
             x -= scaledWidth
