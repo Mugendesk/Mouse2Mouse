@@ -194,11 +194,7 @@ class ConnectionManager: ObservableObject {
     private func resolveEndpoint(_ endpoint: NWEndpoint, completion: @escaping (URL?) -> Void) {
         switch endpoint {
         case .hostPort(let host, let port):
-            var components = URLComponents()
-            components.scheme = "ws"
-            components.host = "\(host)"
-            components.port = Int(port.rawValue)
-            completion(components.url)
+            completion(buildWebSocketURL(host: host, port: port))
 
         case .service:
             // NWConnectionでBonjourサービスをIPアドレスに解決
@@ -212,12 +208,9 @@ class ConnectionManager: ObservableObject {
                     completed = true
                     if let resolved = connection.currentPath?.remoteEndpoint,
                        case .hostPort(let host, let port) = resolved {
-                        var components = URLComponents()
-                        components.scheme = "ws"
-                        components.host = "\(host)"
-                        components.port = Int(port.rawValue)
-                        print("[ConnectionManager] Resolved endpoint: \(components.host ?? ""):\(components.port ?? 0)")
-                        completion(components.url)
+                        let url = self.buildWebSocketURL(host: host, port: port)
+                        print("[ConnectionManager] Resolved endpoint: \(host):\(port) -> \(url?.absoluteString ?? "nil")")
+                        completion(url)
                     } else {
                         completion(nil)
                     }
@@ -250,6 +243,27 @@ class ConnectionManager: ObservableObject {
         default:
             completion(nil)
         }
+    }
+
+    /// NWEndpoint.Host + Port から ws:// URL を構築
+    /// IPv6リンクローカル（例: fe80::1%en0）は[brackets]で囲み%は%25にエンコード
+    private func buildWebSocketURL(host: NWEndpoint.Host, port: NWEndpoint.Port) -> URL? {
+        let hostStr: String
+        switch host {
+        case .ipv4(let v4):
+            hostStr = "\(v4)"
+        case .ipv6(let v6):
+            // IPv6 → "[fe80::1%25en0]" 形式
+            let raw = "\(v6)"
+            // raw は "fe80::...%en0" のような形式。%をパーセントエンコード
+            let encoded = raw.replacingOccurrences(of: "%", with: "%25")
+            hostStr = "[\(encoded)]"
+        case .name(let name, _):
+            hostStr = name
+        @unknown default:
+            return nil
+        }
+        return URL(string: "ws://\(hostStr):\(port.rawValue)")
     }
 
     private func connectWebSocket(url: URL, peer: DiscoveryService.Peer) {
