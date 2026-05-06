@@ -11,11 +11,12 @@ class InputTransmitter {
     private var targetPeerId: String?
     private var heartbeatTimer: DispatchSourceTimer?
 
-    // カーソル送信スロットル（360Hz上限、trailing-edge flush）
-    // 高DPI/高ポーリングレートマウス(4kHz/8kHz)でもCPU・帯域が飽和しない範囲で
-    // 知覚的ラグを最小化する妥協点
+    // カーソル送信スロットル（1000Hz上限、trailing-edge flush）
+    // ゲーミング用途では入力→表示のサブフレームレイテンシが効くため、
+    // CPU/帯域に余裕がある限り高レートを維持する。
+    // (8000Hzマウスでもmacosが内部coalesceするため実質1k〜2k/secに収束)
     private var lastCursorSendTime: CFAbsoluteTime = 0
-    private let cursorSendInterval: CFAbsoluteTime = 1.0 / 360.0
+    private let cursorSendInterval: CFAbsoluteTime = 1.0 / 1000.0
     private var pendingCursorPosition: CGPoint?
     private var cursorFlushScheduled = false
 
