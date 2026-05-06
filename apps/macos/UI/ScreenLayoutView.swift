@@ -1,10 +1,10 @@
 import SwiftUI
+import AppKit
 
 /// 画面配置UI（macOS純正風）
 /// ドラッグで自由に配置、オフセット調整可能
 struct ScreenLayoutView: View {
     @EnvironmentObject var screenManager: ScreenManager
-    @Environment(\.dismiss) private var dismiss
 
     // ビューのスケール（実際の画面サイズを縮小表示）
     private let scale: CGFloat = 0.06
@@ -254,14 +254,14 @@ struct ScreenLayoutView: View {
 
             Spacer()
 
-            Button("キャンセル") {
-                dismiss()
+            Button("閉じる") {
+                closeWindow()
             }
             .buttonStyle(.bordered)
 
-            Button("完了") {
+            Button("保存して閉じる") {
                 screenManager.saveLayout()
-                dismiss()
+                closeWindow()
             }
             .buttonStyle(.borderedProminent)
         }
@@ -353,6 +353,13 @@ struct ScreenLayoutView: View {
                 offsetX: 0,
                 offsetY: 0
             )
+        }
+    }
+
+    /// ウィンドウを閉じる（独立NSWindow経由で表示しているため、dismissではなくwindow.close）
+    private func closeWindow() {
+        if let window = NSApp.keyWindow ?? NSApp.windows.first(where: { $0.title == "ディスプレイ配置" }) {
+            window.close()
         }
     }
 }

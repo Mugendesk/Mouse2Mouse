@@ -7,8 +7,6 @@ struct MenuBarView: View {
     @EnvironmentObject var screenManager: ScreenManager
     @EnvironmentObject var hotkeyManager: HotkeyManager
 
-    @State private var showingScreenLayout = false
-
     var body: some View {
         VStack(spacing: 0) {
             // Header
@@ -226,15 +224,11 @@ struct MenuBarView: View {
 
     private var actionsSection: some View {
         VStack(spacing: 8) {
-            Button(action: { showingScreenLayout = true }) {
+            Button(action: openScreenLayoutWindow) {
                 Label("画面配置", systemImage: "rectangle.3.group")
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.bordered)
-            .sheet(isPresented: $showingScreenLayout) {
-                ScreenLayoutView()
-                    .environmentObject(screenManager)
-            }
 
             HStack(spacing: 8) {
                 Button(action: toggleService) {
@@ -317,6 +311,50 @@ struct MenuBarView: View {
 
     private func openPreferences() {
         // 設定ウィンドウを開く
+    }
+
+    /// 画面配置を独立NSWindowで開く（popover内シートだとフッターが切れて閉じれないため）
+    private func openScreenLayoutWindow() {
+        ScreenLayoutWindowController.show(screenManager: screenManager)
+    }
+}
+
+// MARK: - Screen Layout Window
+
+/// 画面配置を独立ウィンドウで表示するためのコントローラー
+final class ScreenLayoutWindowController {
+    static var shared: NSWindow?
+
+    static func show(screenManager: ScreenManager) {
+        if let existing = shared {
+            existing.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+
+        let view = ScreenLayoutView().environmentObject(screenManager)
+        let hosting = NSHostingController(rootView: view)
+        let window = NSWindow(contentViewController: hosting)
+        window.title = "ディスプレイ配置"
+        window.styleMask = [.titled, .closable, .resizable]
+        window.setContentSize(NSSize(width: 600, height: 650))
+        window.center()
+        window.isReleasedWhenClosed = false
+
+        // 閉じたらsharedをnilに
+        let observer = NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification,
+            object: window,
+            queue: .main
+        ) { _ in
+            shared = nil
+        }
+        // observerは引数で持たない（windowに紐づくのでwindow解放時に外れる）
+        _ = observer
+
+        shared = window
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
     }
 }
 

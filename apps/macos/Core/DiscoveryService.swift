@@ -135,6 +135,9 @@ class DiscoveryService: ObservableObject {
             return
         }
 
+        // init時にNSScreen.screensが空だった可能性があるので、ここで再取得
+        setupLocalDeviceInfo()
+
         print("[DEBUG] Starting browser...")
         startBrowser()
         print("[DEBUG] Starting WebSocket server (with Bonjour)...")
