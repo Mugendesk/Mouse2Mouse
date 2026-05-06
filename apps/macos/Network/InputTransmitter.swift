@@ -85,8 +85,7 @@ class InputTransmitter {
 
     private func sendCursorMove(_ position: CGPoint) {
         guard isTransmitting, let peerId = targetPeerId else {
-            print("[InputTransmitter] Not transmitting or no target")
-            return
+            return  // 通常モードでは毎フレーム呼ばれるので何も出さない
         }
 
         // ピアunion矩形を取得（positionはunion座標系）

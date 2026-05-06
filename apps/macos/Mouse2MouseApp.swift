@@ -28,6 +28,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var cancellables = Set<AnyCancellable>()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // DEBUG: print出力を/tmp/m2m_app.logにリダイレクト（接続デバッグ用）
+        #if DEBUG
+        let logPath = "/tmp/m2m_app.log"
+        freopen(logPath, "w", stdout)
+        freopen(logPath, "w", stderr)
+        setbuf(stdout, nil)
+        setbuf(stderr, nil)
+        print("=== Mouse2Mouse started at \(Date()) ===")
+        #endif
+
         // クラッシュ時のカーソルロック解除ハンドラー
         installCrashSafetyHandlers()
 
