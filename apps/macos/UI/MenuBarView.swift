@@ -357,19 +357,55 @@ struct PeerRow: View {
             .controlSize(.small)
         }
         .padding(.vertical, 4)
-        .alert("接続設定", isPresented: $showingRoleDialog) {
-            Button("このMacが操作元（Host）") {
-                screenManager.setRole(.host)
-                discoveryService.connect(to: peer)
-            }
-            Button("このMacが操作先（Client）") {
-                screenManager.setRole(.client)
-                discoveryService.connect(to: peer)
-            }
-            Button("キャンセル", role: .cancel) {}
-        } message: {
-            Text("\(peer.name) と接続します。\nこのMacの役割を選択してください。")
+        .sheet(isPresented: $showingRoleDialog) {
+            roleSelectionSheet
         }
+    }
+
+    private var roleSelectionSheet: some View {
+        VStack(spacing: 16) {
+            VStack(spacing: 4) {
+                Text("接続設定")
+                    .font(.headline)
+                Text("\(peer.name) と接続します。\nこのMacの役割を選択してください。")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+            .padding(.top, 8)
+
+            VStack(spacing: 8) {
+                Button {
+                    screenManager.setRole(.host)
+                    discoveryService.connect(to: peer)
+                    showingRoleDialog = false
+                } label: {
+                    Label("このMacが操作元（Host）", systemImage: "cursorarrow")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+
+                Button {
+                    screenManager.setRole(.client)
+                    discoveryService.connect(to: peer)
+                    showingRoleDialog = false
+                } label: {
+                    Label("このMacが操作先（Client）", systemImage: "display")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.large)
+            }
+
+            Button("キャンセル") {
+                showingRoleDialog = false
+            }
+            .buttonStyle(.borderless)
+            .padding(.bottom, 4)
+        }
+        .padding(20)
+        .frame(width: 320)
     }
 }
 
