@@ -8,6 +8,10 @@ class WebSocketServer {
     private var listener: NWListener?
     private var connections: [String: WebSocketConnection] = [:]
 
+    /// I/O専用のバックグラウンドキュー（main thread を飽和させない）
+    /// userInteractive QoS でカーソル遅延を最小化
+    static let ioQueue = DispatchQueue(label: "Mouse2Mouse.WebSocketServer.io", qos: .userInteractive)
+
     // Callbacks
     var onClientConnected: ((String) -> Void)?
     var onClientDisconnected: ((String) -> Void)?
@@ -52,7 +56,7 @@ class WebSocketServer {
                 self?.handleNewConnection(connection)
             }
 
-            listener?.start(queue: .main)
+            listener?.start(queue: WebSocketServer.ioQueue)
 
         } catch {
             print("Failed to start WebSocket server: \(error)")
@@ -159,7 +163,8 @@ class WebSocketConnection {
             }
         }
 
-        connection.start(queue: .main)
+        // バックグラウンドキューでI/O。CGEvent等メイン要件はコールバック先で個別dispatchする
+        connection.start(queue: WebSocketServer.ioQueue)
     }
 
     func close() {

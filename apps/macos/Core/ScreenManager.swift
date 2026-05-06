@@ -340,16 +340,16 @@ class ScreenManager: ObservableObject {
     }
 
     /// 全ローカルディスプレイの和集合（仮想デスクトップ）を返す（AppKit座標系）
-    /// 単一画面の場合はそのframe、複数の場合はバウンディングボックス
+    /// localScreensキャッシュから計算（NSScreen.screensはmain-threadのみ安全なため）
     func localVirtualDesktopAppKit() -> CGRect {
-        let union = NSScreen.screens.reduce(CGRect.null) { $0.union($1.frame) }
+        let union = localScreens.reduce(CGRect.null) { $0.union($1.frame) }
         return union.isNull ? .zero : union
     }
 
     /// 全ローカルディスプレイの和集合をQuartz座標系で返す
     /// CGEvent.postに渡すカーソル座標の基準として使う
     func localVirtualDesktopQuartz() -> CGRect {
-        guard let primaryHeight = NSScreen.screens.first?.frame.height else {
+        guard let primaryHeight = localScreens.first?.frame.height else {
             return .zero
         }
         return appKitToQuartz(localVirtualDesktopAppKit(), primaryHeight: primaryHeight)
