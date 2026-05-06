@@ -11,6 +11,12 @@ class InputTransmitter {
     private var targetPeerId: String?
     private var heartbeatTimer: DispatchSourceTimer?
 
+    // カーソル送信スロットル（120Hz上限、trailing-edge flush）
+    private var lastCursorSendTime: CFAbsoluteTime = 0
+    private let cursorSendInterval: CFAbsoluteTime = 1.0 / 120.0
+    private var pendingCursorPosition: CGPoint?
+    private var cursorFlushScheduled = false
+
     var currentTargetPeerId: String? { targetPeerId }
 
     private init() {
@@ -57,6 +63,8 @@ class InputTransmitter {
         stopHeartbeat()
         isTransmitting = false
         targetPeerId = nil
+        pendingCursorPosition = nil
+        cursorFlushScheduled = false
         InputCapture.shared.exitRemoteMode()
         print("Stopped transmitting")
     }
@@ -84,28 +92,50 @@ class InputTransmitter {
     // MARK: - Sending Messages
 
     private func sendCursorMove(_ position: CGPoint) {
-        guard isTransmitting, let peerId = targetPeerId else {
-            return  // 通常モードでは毎フレーム呼ばれるので何も出さない
-        }
+        guard isTransmitting, targetPeerId != nil else { return }
 
-        // ピアunion矩形を取得（positionはunion座標系）
+        let now = CFAbsoluteTimeGetCurrent()
+        let elapsed = now - lastCursorSendTime
+
+        if elapsed >= cursorSendInterval {
+            // すぐに送信
+            lastCursorSendTime = now
+            pendingCursorPosition = nil
+            cursorFlushScheduled = false
+            actuallySendCursor(position)
+        } else {
+            // レート制限中: 最新位置を保持し、間隔到達時にflush
+            pendingCursorPosition = position
+            if !cursorFlushScheduled {
+                cursorFlushScheduled = true
+                let delay = cursorSendInterval - elapsed
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                    self?.flushPendingCursor()
+                }
+            }
+        }
+    }
+
+    private func flushPendingCursor() {
+        cursorFlushScheduled = false
+        guard isTransmitting, let pending = pendingCursorPosition else { return }
+        pendingCursorPosition = nil
+        lastCursorSendTime = CFAbsoluteTimeGetCurrent()
+        actuallySendCursor(pending)
+    }
+
+    private func actuallySendCursor(_ position: CGPoint) {
+        guard let peerId = targetPeerId else { return }
+
         let peerUnion = ScreenManager.shared.peerUnion(peerId: peerId)
-        guard peerUnion.width > 0, peerUnion.height > 0 else {
-            print("[InputTransmitter] Empty peer union for \(peerId)")
-            return
-        }
+        guard peerUnion.width > 0, peerUnion.height > 0 else { return }
 
-        // ピアunion全体に対する正規化座標(0.0-1.0)
         let normalizedX = (position.x - peerUnion.minX) / peerUnion.width
         let normalizedY = (position.y - peerUnion.minY) / peerUnion.height
 
         let message = CursorMoveMessage(x: Double(normalizedX), y: Double(normalizedY))
-
         if let json = encoder.encode(message) {
             sendToTarget(json)
-            if Int.random(in: 0..<10) == 0 {
-                print("[InputTransmitter] Sending cursor: (\(String(format: "%.2f", normalizedX)), \(String(format: "%.2f", normalizedY)))")
-            }
         }
     }
 
