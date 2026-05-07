@@ -15,6 +15,13 @@ final class UDPCursorChannel {
     // ピアごとの送信用UDPコネクション（peerId → connection）
     private var sendConnections: [String: NWConnection] = [:]
 
+    // 受信側: 受信済みtimestampを記録して重複/古いパケットを弾く
+    private var lastReceivedTimestamp: Double = 0
+
+    // 送信冗長度（パケット損失対策）
+    // 3でWiFi 1%損失でも実効損失~0.0001%。LANでは帯域無視できる
+    private let redundancy: Int = 3
+
     private init() {}
 
     // MARK: - Lifecycle
@@ -72,10 +79,12 @@ final class UDPCursorChannel {
 
     private func handleData(_ data: Data) {
         guard let str = String(data: data, encoding: .utf8) else { return }
-        if let msg = MessageEncoder.shared.decode(CursorMoveMessage.self, from: str) {
-            InputCapture.shared.peerMessageReceived()
-            InputReceiver.shared.handleCursorMove(x: msg.x, y: msg.y)
-        }
+        guard let msg = MessageEncoder.shared.decode(CursorMoveMessage.self, from: str) else { return }
+        // timestamp比較で重複/古いパケットを破棄（triple-sendでも一度だけ処理）
+        guard msg.timestamp > lastReceivedTimestamp else { return }
+        lastReceivedTimestamp = msg.timestamp
+        InputCapture.shared.peerMessageReceived()
+        InputReceiver.shared.handleCursorMove(x: msg.x, y: msg.y)
     }
 
     // MARK: - Send Path
@@ -102,10 +111,13 @@ final class UDPCursorChannel {
     }
 
     /// UDPでカーソルメッセージを送信
-    /// パケット損失は許容（次のメッセージで上書きされる）
+    /// 同じパケットをredundancy回送る。受信側はtimestampで重複を弾く
+    /// (1パケット連続損失耐性: 1-(loss^N) → 1%損失でも~0.000001%実効損失)
     func sendCursor(_ message: String, to peerId: String) {
         guard let conn = sendConnections[peerId],
               let data = message.data(using: .utf8) else { return }
-        conn.send(content: data, completion: .idempotent)
+        for _ in 0..<redundancy {
+            conn.send(content: data, completion: .idempotent)
+        }
     }
 }
