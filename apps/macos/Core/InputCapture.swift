@@ -36,13 +36,13 @@ class InputCapture: ObservableObject {
     private let panicCount = 3
 
     // ウォッチドッグ:
-    // - 入力イベント途絶3秒 → 自動解除（ユーザーが離席）
-    // - ピア無音2秒 → 自動解除（ネットワーク死亡 / ピアクラッシュ）
+    // - 入力イベント途絶30秒 → 自動解除（ユーザー離席・読み中の自然な待機を許容）
+    // - ピア無音5秒 → 自動解除（WiFiジッター許容、それでも死亡時は確実に脱出）
     private var watchdogTimer: DispatchSourceTimer?
     private var lastEventTimestamp: CFAbsoluteTime = CFAbsoluteTimeGetCurrent()
     private var lastPeerMessageTimestamp: CFAbsoluteTime = CFAbsoluteTimeGetCurrent()
-    private let inputWatchdogTimeout: CFAbsoluteTime = 3.0
-    private let peerWatchdogTimeout: CFAbsoluteTime = 2.0
+    private let inputWatchdogTimeout: CFAbsoluteTime = 30.0
+    private let peerWatchdogTimeout: CFAbsoluteTime = 5.0
 
     /// ピアからメッセージ受信時に呼ぶ（無音検知のリセット）
     func peerMessageReceived() {
