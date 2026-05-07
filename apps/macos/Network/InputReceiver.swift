@@ -18,9 +18,63 @@ class InputReceiver {
     private var cachedTrustedAt: CFAbsoluteTime = 0
     private let trustedCacheTTL: CFAbsoluteTime = 5.0
 
+    // MARK: - クライアント側予測補完（FPS/格ゲー手法）
+    // ネットワーク遅延を視覚的にマスクするため、受信位置と速度から
+    // 「今頃ここにいるはず」を予測してCGWarpする
+    private var lastReceivedPos: CGPoint?  // Quartz絶対座標
+    private var lastReceivedTime: CFAbsoluteTime = 0
+    private var velocity: CGPoint = .zero  // points/sec
+    private var lastAppliedPos: CGPoint?
+    private let velocitySmoothing: CGFloat = 0.5  // 0=変化なし、1=瞬間値そのまま
+    private let predictionCap: CFAbsoluteTime = 0.05  // 50ms先まで予測（暴走抑止）
+    private let staleThreshold: CFAbsoluteTime = 0.1  // 100ms以上未受信なら予測停止
+    private let renderInterval: TimeInterval = 1.0 / 240.0  // 240Hz レンダー
+    private var renderTimer: DispatchSourceTimer?
+    private static let renderQueue = DispatchQueue(label: "Mouse2Mouse.CursorRender", qos: .userInteractive)
+
     private init() {
         cachedTrusted = AXIsProcessTrusted()
         cachedTrustedAt = CFAbsoluteTimeGetCurrent()
+        startRenderLoop()
+    }
+
+    private func startRenderLoop() {
+        let timer = DispatchSource.makeTimerSource(queue: Self.renderQueue)
+        timer.schedule(deadline: .now() + renderInterval, repeating: renderInterval)
+        timer.setEventHandler { [weak self] in
+            self?.tickPrediction()
+        }
+        timer.resume()
+        renderTimer = timer
+    }
+
+    /// 240Hzで予測位置を計算してカーソルを動かす
+    private func tickPrediction() {
+        guard let lastPos = lastReceivedPos else { return }
+        let now = CFAbsoluteTimeGetCurrent()
+        let elapsed = now - lastReceivedTime
+
+        let predicted: CGPoint
+        if elapsed > staleThreshold {
+            // 古い: ユーザーが止まっているとみなし最終位置のまま
+            predicted = lastPos
+        } else {
+            // 速度×経過時間でCAPまで前進
+            let dt = CGFloat(min(elapsed, predictionCap))
+            predicted = CGPoint(
+                x: lastPos.x + velocity.x * dt,
+                y: lastPos.y + velocity.y * dt
+            )
+        }
+
+        // 前回適用位置とほぼ同じならスキップ（無駄なCGEvent抑制）
+        if let last = lastAppliedPos,
+           abs(last.x - predicted.x) < 0.5,
+           abs(last.y - predicted.y) < 0.5 {
+            return
+        }
+        lastAppliedPos = predicted
+        moveCursor(to: predicted)
     }
 
     private func isAccessibilityTrusted() -> Bool {
@@ -49,25 +103,29 @@ class InputReceiver {
     // MARK: - Cursor Movement
 
     func handleCursorMove(x: Double, y: Double) {
-        // 注意: カーソル移動は役割に関係なく処理する
-        // （Hostからの戻り操作のため）
-
         // 仮想デスクトップ全体（全ディスプレイの和集合）を基準に正規化座標を解釈
-        // macOSが絶対Quartz座標から自動で適切な物理ディスプレイにカーソルを配置する
         let union = ScreenManager.shared.localVirtualDesktopQuartz()
-        guard union.width > 0, union.height > 0 else {
-            print("[InputReceiver] ERROR: No valid virtual desktop")
-            return
-        }
+        guard union.width > 0, union.height > 0 else { return }
 
         let actualX = union.minX + CGFloat(x) * union.width
         let actualY = union.minY + CGFloat(y) * union.height
+        let newPos = CGPoint(x: actualX, y: actualY)
+        let now = CFAbsoluteTimeGetCurrent()
 
-        let cgPoint = CGPoint(x: actualX, y: actualY)
-        virtualCursorPosition = cgPoint
-
-        // カーソルを移動
-        moveCursor(to: cgPoint)
+        // 速度を指数移動平均で更新（ノイズ低減）
+        if let prev = lastReceivedPos {
+            let dt = now - lastReceivedTime
+            if dt > 0 && dt < 0.1 {  // 100ms以上のギャップは速度推定から除外
+                let instantVx = (newPos.x - prev.x) / CGFloat(dt)
+                let instantVy = (newPos.y - prev.y) / CGFloat(dt)
+                velocity.x = velocity.x * (1 - velocitySmoothing) + instantVx * velocitySmoothing
+                velocity.y = velocity.y * (1 - velocitySmoothing) + instantVy * velocitySmoothing
+            }
+        }
+        lastReceivedPos = newPos
+        lastReceivedTime = now
+        virtualCursorPosition = newPos
+        // 直接moveCursorしない: tickPredictionが240Hzで予測位置を適用する
     }
 
     private func moveCursor(to point: CGPoint) {
