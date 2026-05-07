@@ -165,11 +165,13 @@ class InputCapture: ObservableObject {
         virtualCursorPosition = entryPoint
         // イベントを消費できるようにdefaultTapで再作成
         restartCapturing(withDefaultTap: true)
-        // カーソルを固定
-        CGAssociateMouseAndMouseCursorPosition(0)
+        // カーソルをハードウェアから切り離し（macOS 14+でCGAssociateだけだと不安定なので
+        // CGDisplayHideCursorも併用してホスト側のカーソルを完全に消す）
+        let assocErr = CGAssociateMouseAndMouseCursorPosition(0)
+        let hideErr = CGDisplayHideCursor(CGMainDisplayID())
         // ウォッチドッグ開始（イベント途絶で自動解除）
         startWatchdog()
-        print("[InputCapture] Entered remote mode at \(entryPoint)")
+        print("[InputCapture] Entered remote mode at \(entryPoint) assocErr=\(assocErr.rawValue) hideErr=\(hideErr.rawValue)")
     }
 
     /// リモートモードを終了
@@ -178,7 +180,8 @@ class InputCapture: ObservableObject {
         isRemoteMode = false
         // ウォッチドッグ停止
         stopWatchdog()
-        // カーソル固定を最初に解除（他の処理が失敗してもロックされない）
+        // カーソル復元（hide/disassociate両方戻す。順序は逆順）
+        CGDisplayShowCursor(CGMainDisplayID())
         CGAssociateMouseAndMouseCursorPosition(1)
         // listenOnlyに戻す（安全 — フォールバックでマウスのみになっても入力はブロックされない）
         restartCapturing(withDefaultTap: false)
@@ -504,7 +507,8 @@ class InputCapture: ObservableObject {
     /// パニック脱出: あらゆる状態を強制リセットしてカーソルを解放
     /// 通常のexitRemoteMode経路が失敗していても確実にロックを解除する最終手段
     func panicReset() {
-        // 1. カーソル関連付けを最優先で復元（他の処理が失敗しても確実に解除）
+        // 1. カーソル表示と関連付けを最優先で復元（他の処理が失敗しても確実に解除）
+        CGDisplayShowCursor(CGMainDisplayID())
         CGAssociateMouseAndMouseCursorPosition(1)
 
         // 2. 全状態をクリア
@@ -524,6 +528,7 @@ class InputCapture: ObservableObject {
         }
 
         // 4. 念押しでもう一度
+        CGDisplayShowCursor(CGMainDisplayID())
         CGAssociateMouseAndMouseCursorPosition(1)
 
         // 通知音（ユーザーへのフィードバック）
