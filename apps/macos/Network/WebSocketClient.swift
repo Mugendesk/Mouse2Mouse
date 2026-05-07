@@ -559,33 +559,44 @@ class ConnectionManager: ObservableObject {
     }
 
     func handleIncomingMessage(_ message: String, from peerId: String) {
-        // メインスレッドで実行を保証
-        guard Thread.isMainThread else {
-            DispatchQueue.main.async { self.handleIncomingMessage(message, from: peerId) }
-            return
-        }
-        // DiscoveryServiceで既に復号済みのメッセージを受け取る
         guard let type = MessageEncoder.shared.decodeType(from: message) else {
             return
         }
 
+        // 高頻度パス: CGEvent系は呼び出し元キュー(ioQueue)のままで実行
+        // (CGEvent.post はthread-safe、ScreenManagerのlocalScreensはキャッシュ済み)
         switch type {
         case .cursorMove:
             if let msg = MessageEncoder.shared.decode(CursorMoveMessage.self, from: message) {
                 InputReceiver.shared.handleCursorMove(x: msg.x, y: msg.y)
             }
+            return
         case .mouseButton:
             if let msg = MessageEncoder.shared.decode(MouseButtonMessage.self, from: message) {
                 InputReceiver.shared.handleMouseButton(button: msg.button, isDown: msg.state == .down, clickCount: msg.clickCount)
             }
+            return
         case .scroll:
             if let msg = MessageEncoder.shared.decode(ScrollMessage.self, from: message) {
                 InputReceiver.shared.handleScroll(dx: msg.dx, dy: msg.dy)
             }
+            return
         case .key:
             if let msg = MessageEncoder.shared.decode(KeyMessage.self, from: message) {
                 InputReceiver.shared.handleKeyEvent(keycode: msg.keycode, isDown: msg.state == .down, modifiers: msg.modifiers)
             }
+            return
+        default:
+            break
+        }
+
+        // それ以外（状態変更を伴う）はmainで処理
+        if !Thread.isMainThread {
+            DispatchQueue.main.async { self.handleIncomingMessage(message, from: peerId) }
+            return
+        }
+
+        switch type {
         case .controlTransfer:
             if let msg = MessageEncoder.shared.decode(ControlTransferMessage.self, from: message) {
                 print("[ConnectionManager] Received controlTransfer (incoming): to=\(msg.to)")
@@ -601,9 +612,7 @@ class ConnectionManager: ObservableObject {
             }
         case .roleChange:
             if let msg = MessageEncoder.shared.decode(RoleChangeMessage.self, from: message) {
-                DispatchQueue.main.async {
-                    ScreenManager.shared.handleRemoteRoleChange(role: msg.role, fromDeviceId: msg.deviceId)
-                }
+                ScreenManager.shared.handleRemoteRoleChange(role: msg.role, fromDeviceId: msg.deviceId)
             }
         default:
             break
