@@ -153,11 +153,16 @@ class InputReceiver {
     // MARK: - Keyboard
 
     func handleKeyEvent(keycode: Int, isDown: Bool, modifiers: [String]) {
+        print("[Key←] keycode=\(keycode) isDown=\(isDown) modifiers=\(modifiers) trusted=\(isAccessibilityTrusted())")
         let event = CGEvent(
             keyboardEventSource: nil,
             virtualKey: CGKeyCode(keycode),
             keyDown: isDown
         )
+        if event == nil {
+            print("[Key←] ERROR: Failed to create CGEvent for keycode=\(keycode)")
+            return
+        }
 
         // 修飾キーを設定
         var flags: CGEventFlags = []

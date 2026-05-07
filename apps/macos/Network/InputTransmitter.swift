@@ -143,11 +143,15 @@ class InputTransmitter {
     }
 
     private func sendKeyEvent(keycode: Int, isDown: Bool, modifiers: [String]) {
-        guard isTransmitting else { return }
+        guard isTransmitting else {
+            print("[Key→] DROPPED keycode=\(keycode) isDown=\(isDown) (not transmitting)")
+            return
+        }
 
         let message = KeyMessage(keycode: keycode, state: isDown ? .down : .up, modifiers: modifiers)
 
         if let json = encoder.encode(message) {
+            print("[Key→] keycode=\(keycode) isDown=\(isDown) modifiers=\(modifiers) target=\(targetPeerId ?? "nil")")
             sendToTarget(json)
         }
     }
