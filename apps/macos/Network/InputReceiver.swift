@@ -23,14 +23,18 @@ class InputReceiver {
     private var cachedTrustedAt: CFAbsoluteTime = 0
     private let trustedCacheTTL: CFAbsoluteTime = 5.0
 
-    // CGWarpMouseCursorPositionの絞り込み（Launchpadがposition変化に応じて
-    // highlight計算するため、1000Hzのwarpで崩壊する）。
-    // モニタ更新頻度の倍程度あれば視覚的に滑らかなので240Hzで十分。
-    // ドラッグ中（last warpが押下中）は全レート維持して描画/選択精度を保つ。
+    // CGWarp / mouseMoved postの絞り込み（Launchpad/Dock/MC等の高負荷UIが
+    // 高頻度のhover更新で崩壊するのを防ぐ）。
+    // ローカルHWマウスは~125Hzで動くため、それに揃えれば挙動が自然になる。
+    // - Warp 120Hz（カーソル位置の追従）
+    // - mouseMoved post 60Hz（hover効果・Launchpad highlight等の通知）
+    // ドラッグ中は全レート維持（描画/選択精度のため）。
     private var lastWarpTime: CFAbsoluteTime = 0
-    private let warpInterval: CFAbsoluteTime = 1.0 / 240.0
+    private let warpInterval: CFAbsoluteTime = 1.0 / 120.0
     private var pendingWarpPosition: CGPoint?
     private var warpFlushScheduled = false
+    private var lastMoveEventPostTime: CFAbsoluteTime = 0
+    private let mouseMovedPostInterval: CFAbsoluteTime = 1.0 / 60.0
 
 
     private init() {
@@ -85,11 +89,11 @@ class InputReceiver {
         let isDragging = leftButtonDown || rightButtonDown || otherButtonDown
 
         // ドラッグ中はWarp/post全レートで実行（描画・選択精度のため）。
-        // hover中はWarpを240Hzに絞ってLaunchpad等の高負荷UIの暴走を防ぐ。
+        // hover中はWarpを120Hzに絞ってLaunchpad等の高負荷UIの暴走を防ぐ。
         if isDragging {
             CGWarpMouseCursorPosition(point)
         } else {
-            // hover時: 240Hz throttleでwarp。trailing-edge flushで最終位置は確実に到達
+            // hover時: 120Hz throttleでwarp。trailing-edge flushで最終位置は確実に到達
             let now = CFAbsoluteTimeGetCurrent()
             if now - lastWarpTime >= warpInterval {
                 lastWarpTime = now
@@ -111,18 +115,23 @@ class InputReceiver {
                     }
                 }
             }
-            // hover中はpostしない（Dock magnification暴走対策）。CGWarpだけで終了。
-            return
         }
 
-        // ドラッグ時のイベント生成
+        // イベントタイプ決定
         let (eventType, button): (CGEventType, CGMouseButton)
         if leftButtonDown {
             (eventType, button) = (.leftMouseDragged, .left)
         } else if rightButtonDown {
             (eventType, button) = (.rightMouseDragged, .right)
-        } else {
+        } else if otherButtonDown {
             (eventType, button) = (.otherMouseDragged, .center)
+        } else {
+            // hover: 60Hzに絞ってpost（local HWマウスと同程度。Dock magnification・
+            // Launchpad highlight等のhover効果を維持しつつ高負荷UIの暴走を防ぐ）。
+            let now = CFAbsoluteTimeGetCurrent()
+            if now - lastMoveEventPostTime < mouseMovedPostInterval { return }
+            lastMoveEventPostTime = now
+            (eventType, button) = (.mouseMoved, .left)
         }
 
         if let moveEvent = CGEvent(
