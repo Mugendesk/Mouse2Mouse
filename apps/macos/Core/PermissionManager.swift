@@ -1,5 +1,6 @@
 import Cocoa
 import ApplicationServices
+import IOKit.hid
 
 /// 権限管理
 class PermissionManager {
@@ -41,39 +42,33 @@ class PermissionManager {
     // MARK: - Input Monitoring Permission
 
     /// 入力監視権限をチェック
+    /// IOHIDCheckAccess(.listenEvent)が信頼できる唯一の判定方法。
+    /// CGEventTap創建だけだとマウスマスクは権限なしでも通ってしまい、
+    /// キーボードイベントのみサイレントドロップされる罠がある。
     static func checkInputMonitoring() -> Bool {
-        // CGEventTapの作成を試みることで権限をチェック
-        let eventMask: CGEventMask = (1 << CGEventType.mouseMoved.rawValue)
-
-        guard let tap = CGEvent.tapCreate(
-            tap: .cgSessionEventTap,
-            place: .headInsertEventTap,
-            options: .listenOnly,
-            eventsOfInterest: eventMask,
-            callback: { _, _, event, _ in
-                return Unmanaged.passUnretained(event)
-            },
-            userInfo: nil
-        ) else {
-            return false
-        }
-
-        // テスト成功したらすぐに無効化
-        CFMachPortInvalidate(tap)
-        return true
+        return IOHIDCheckAccess(kIOHIDRequestTypeListenEvent) == kIOHIDAccessTypeGranted
     }
 
     /// 入力監視権限をリクエスト
+    /// IOHIDRequestAccessでシステムプロンプトを直接トリガーする。
+    /// 拒否済みの場合は alert を出して設定画面に誘導。
     static func requestInputMonitoring() {
+        // IOHIDRequestAccessは権限が未決定ならシステムダイアログを出してくれる。
+        // 既に拒否されている場合は false を返すので、その時だけ alert を出す。
+        if IOHIDRequestAccess(kIOHIDRequestTypeListenEvent) {
+            return
+        }
+
         let alert = NSAlert()
         alert.messageText = "入力監視権限が必要です"
         alert.informativeText = """
-        Mouse2Mouseがマウスとキーボードの入力を検知するには、
-        入力監視権限を許可してください。
+        キーボード共有を使うには「入力監視」権限が必須です。
+        マウスだけならこの権限なしでも動きますが、キーは送れません。
 
         1. システム設定を開く
         2. プライバシーとセキュリティ > 入力監視
         3. Mouse2Mouseにチェックを入れる
+        4. アプリを再起動
         """
         alert.addButton(withTitle: "システム設定を開く")
         alert.addButton(withTitle: "後で")

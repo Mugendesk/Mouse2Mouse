@@ -114,14 +114,23 @@ class InputCapture: ObservableObject {
         eventTap = tap
         runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
 
+        // 必ずメインスレッドの run loop に追加する。
+        // ScreenManager.init() 経由（AppDelegateのプロパティ初期化）から呼ばれた場合、
+        // 同じくメインスレッドだが NSApplication.run 開始前で run loop が走ってない。
+        // CFRunLoopGetMain() を明示指定すれば確実にメインに付く。
         if let source = runLoopSource {
-            CFRunLoopAddSource(CFRunLoopGetCurrent(), source, .commonModes)
+            CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
         }
 
         CGEvent.tapEnable(tap: tap, enable: true)
 
         isCapturing = true
-        print("[InputCapture] Started (keyboard: \(hasKeyboardCapture), defaultTap: \(useDefaultTap))")
+        let inputMonitoring = PermissionManager.checkInputMonitoring()
+        let accessibility = PermissionManager.checkAccessibility()
+        print("[InputCapture] Started (keyboard: \(hasKeyboardCapture), defaultTap: \(useDefaultTap), accessibility: \(accessibility), inputMonitoring: \(inputMonitoring))")
+        if !inputMonitoring {
+            print("[InputCapture] WARN: Input Monitoring permission denied — keyboard events will be silently dropped by macOS")
+        }
     }
 
     func stopCapturing() {
@@ -261,6 +270,7 @@ class InputCapture: ObservableObject {
             handleScroll(event: event)
 
         case .keyDown:
+            print("[Tap] keyDown received remoteMode=\(isRemoteMode) hasKeyboardCallback=\(onKeyEvent != nil)")
             // ホットキーチェック（共有トグル: Ctrl+Option+S）
             let hkKeycode = Int(event.getIntegerValueField(.keyboardEventKeycode))
             let hkModifiers = getModifiers(from: event.flags)
