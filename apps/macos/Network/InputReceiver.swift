@@ -25,8 +25,9 @@ class InputReceiver {
     private var lastReceivedTime: CFAbsoluteTime = 0
     private var velocity: CGPoint = .zero  // points/sec
     private var lastAppliedPos: CGPoint?
-    private let velocitySmoothing: CGFloat = 0.5  // 0=変化なし、1=瞬間値そのまま
-    private let predictionCap: CFAbsoluteTime = 0.05  // 50ms先まで予測（暴走抑止）
+    private let velocitySmoothing: CGFloat = 0.3  // 速度変化への追従を遅く（高センシでの暴走抑止）
+    private let predictionCap: CFAbsoluteTime = 0.015  // 15ms先まで予測（保守的）
+    private let predictionDistanceCap: CGFloat = 25  // 予測距離は最大25pxまで（ワープ防止）
     private let staleThreshold: CFAbsoluteTime = 0.1  // 100ms以上未受信なら予測停止
     private let renderInterval: TimeInterval = 1.0 / 240.0  // 240Hz レンダー
     private var renderTimer: DispatchSourceTimer?
@@ -59,12 +60,17 @@ class InputReceiver {
             // 古い: ユーザーが止まっているとみなし最終位置のまま
             predicted = lastPos
         } else {
-            // 速度×経過時間でCAPまで前進
+            // 速度×経過時間でCAPまで前進、ただし最大予測距離も制限
             let dt = CGFloat(min(elapsed, predictionCap))
-            predicted = CGPoint(
-                x: lastPos.x + velocity.x * dt,
-                y: lastPos.y + velocity.y * dt
-            )
+            var dx = velocity.x * dt
+            var dy = velocity.y * dt
+            let dist = sqrt(dx * dx + dy * dy)
+            if dist > predictionDistanceCap {
+                let scale = predictionDistanceCap / dist
+                dx *= scale
+                dy *= scale
+            }
+            predicted = CGPoint(x: lastPos.x + dx, y: lastPos.y + dy)
         }
 
         // 前回適用位置とほぼ同じならスキップ（無駄なCGEvent抑制）
