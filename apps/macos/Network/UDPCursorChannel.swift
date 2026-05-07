@@ -1,6 +1,54 @@
 import Foundation
 import Network
 
+/// カーソル位置のバイナリパケット形式
+/// JSON(~70bytes)よりも小さく(25bytes)、parse/encodeも高速
+/// レイアウト（little-endian）:
+///   byte 0:    magic 'M' (0x4D)
+///   byte 1:    version (0x01)
+///   byte 2-9:  timestamp (Float64)
+///   byte 10-17: x (Float64, normalized 0.0-1.0)
+///   byte 18-25: y (Float64, normalized 0.0-1.0)
+private struct CursorPacket {
+    static let size = 26
+    static let magic: UInt8 = 0x4D
+    static let version: UInt8 = 0x01
+
+    let timestamp: Double
+    let x: Double
+    let y: Double
+
+    func encode() -> Data {
+        var data = Data(capacity: Self.size)
+        data.append(Self.magic)
+        data.append(Self.version)
+        var ts = timestamp.bitPattern.littleEndian
+        var bx = x.bitPattern.littleEndian
+        var by = y.bitPattern.littleEndian
+        withUnsafeBytes(of: &ts) { data.append(contentsOf: $0) }
+        withUnsafeBytes(of: &bx) { data.append(contentsOf: $0) }
+        withUnsafeBytes(of: &by) { data.append(contentsOf: $0) }
+        return data
+    }
+
+    static func decode(_ data: Data) -> CursorPacket? {
+        guard data.count == size,
+              data[0] == magic,
+              data[1] == version else { return nil }
+        return data.withUnsafeBytes { buf -> CursorPacket? in
+            let base = buf.baseAddress!
+            let ts = (base + 2).load(fromByteOffset: 0, as: UInt64.self)
+            let bx = (base + 10).load(fromByteOffset: 0, as: UInt64.self)
+            let by = (base + 18).load(fromByteOffset: 0, as: UInt64.self)
+            return CursorPacket(
+                timestamp: Double(bitPattern: UInt64(littleEndian: ts)),
+                x: Double(bitPattern: UInt64(littleEndian: bx)),
+                y: Double(bitPattern: UInt64(littleEndian: by))
+            )
+        }
+    }
+}
+
 /// カーソル位置の高速UDPチャネル
 /// WebSocket(TCP)ではパケットロス時にhead-of-line blockingで固まるため、
 /// 損失許容のカーソル送信のみUDPで分離。
@@ -78,13 +126,12 @@ final class UDPCursorChannel {
     }
 
     private func handleData(_ data: Data) {
-        guard let str = String(data: data, encoding: .utf8) else { return }
-        guard let msg = MessageEncoder.shared.decode(CursorMoveMessage.self, from: str) else { return }
+        guard let pkt = CursorPacket.decode(data) else { return }
         // timestamp比較で重複/古いパケットを破棄（triple-sendでも一度だけ処理）
-        guard msg.timestamp > lastReceivedTimestamp else { return }
-        lastReceivedTimestamp = msg.timestamp
+        guard pkt.timestamp > lastReceivedTimestamp else { return }
+        lastReceivedTimestamp = pkt.timestamp
         InputCapture.shared.peerMessageReceived()
-        InputReceiver.shared.handleCursorMove(x: msg.x, y: msg.y)
+        InputReceiver.shared.handleCursorMove(x: pkt.x, y: pkt.y)
     }
 
     // MARK: - Send Path
@@ -110,12 +157,13 @@ final class UDPCursorChannel {
         sendConnections.removeValue(forKey: peerId)
     }
 
-    /// UDPでカーソルメッセージを送信
+    /// UDPでカーソル位置を送信（バイナリ26byte）
     /// 同じパケットをredundancy回送る。受信側はtimestampで重複を弾く
     /// (1パケット連続損失耐性: 1-(loss^N) → 1%損失でも~0.000001%実効損失)
-    func sendCursor(_ message: String, to peerId: String) {
-        guard let conn = sendConnections[peerId],
-              let data = message.data(using: .utf8) else { return }
+    func sendCursor(x: Double, y: Double, to peerId: String) {
+        guard let conn = sendConnections[peerId] else { return }
+        let pkt = CursorPacket(timestamp: CFAbsoluteTimeGetCurrent(), x: x, y: y)
+        let data = pkt.encode()
         for _ in 0..<redundancy {
             conn.send(content: data, completion: .idempotent)
         }

@@ -115,14 +115,11 @@ class InputTransmitter {
         let peerUnion = ScreenManager.shared.peerUnion(peerId: peerId)
         guard peerUnion.width > 0, peerUnion.height > 0 else { return }
 
-        let normalizedX = (position.x - peerUnion.minX) / peerUnion.width
-        let normalizedY = (position.y - peerUnion.minY) / peerUnion.height
+        let normalizedX = Double((position.x - peerUnion.minX) / peerUnion.width)
+        let normalizedY = Double((position.y - peerUnion.minY) / peerUnion.height)
 
-        let message = CursorMoveMessage(x: Double(normalizedX), y: Double(normalizedY))
-        if let json = encoder.encode(message) {
-            // カーソル位置はUDPで送信（パケット損失を許容、TCPのhead-of-line blockingを回避）
-            UDPCursorChannel.shared.sendCursor(json, to: peerId)
-        }
+        // バイナリ26byteでUDP送信（JSON parseを完全に回避、ペイロード1/3）
+        UDPCursorChannel.shared.sendCursor(x: normalizedX, y: normalizedY, to: peerId)
     }
 
     private func sendMouseButton(button: Int, isDown: Bool, clickCount: Int = 1) {
