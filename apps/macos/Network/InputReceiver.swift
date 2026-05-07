@@ -77,17 +77,20 @@ class InputReceiver {
             return
         }
 
-        // CGEventはすでに左上原点の座標系
-        guard let moveEvent = CGEvent(
+        // CGWarpMouseCursorPositionで即座にカーソル位置だけ更新（最低レイテンシ）
+        // CGWarpはWindowServerに直接届くため、CGEvent.postの event tap chain を経由しない
+        CGWarpMouseCursorPosition(point)
+
+        // ホバー効果やドラッグ判定のためにmouseMovedイベントも発行
+        // (CGWarpはイベントを生成しないため)
+        if let moveEvent = CGEvent(
             mouseEventSource: nil,
             mouseType: .mouseMoved,
             mouseCursorPosition: point,
             mouseButton: .left
-        ) else {
-            print("[InputReceiver] ERROR: Failed to create CGEvent")
-            return
+        ) {
+            moveEvent.post(tap: .cghidEventTap)
         }
-        moveEvent.post(tap: .cghidEventTap)
     }
 
     // MARK: - Mouse Button
