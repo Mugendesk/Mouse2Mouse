@@ -121,6 +121,11 @@ class WebSocketServer {
         }
     }
 
+    /// 指定クライアントの送信元IPを取得（UDPチャネル登録用）
+    func remoteHost(for clientId: String) -> NWEndpoint.Host? {
+        return connections[clientId]?.remoteHost
+    }
+
     // MARK: - Connection Info
 
     var connectedClientCount: Int {
@@ -145,6 +150,17 @@ class WebSocketConnection {
     private var frameBuffer = Data()
     private let maxFrameSize = 10 * 1024 * 1024  // 10MB
     private let maxBufferSize = 20 * 1024 * 1024  // 20MB
+
+    /// 送信元IPアドレス（UDPチャネルへのピア登録に使う）
+    var remoteHost: NWEndpoint.Host? {
+        if case .hostPort(let host, _) = connection.endpoint {
+            return host
+        }
+        if case .hostPort(let host, _) = connection.currentPath?.remoteEndpoint ?? .unix(path: "") {
+            return host
+        }
+        return nil
+    }
 
     init(connection: NWConnection, clientId: String) {
         self.connection = connection

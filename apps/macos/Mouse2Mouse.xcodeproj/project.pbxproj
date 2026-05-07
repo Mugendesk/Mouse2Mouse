@@ -28,6 +28,7 @@
 		911779F92F0A252400E040C6 /* PermissionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 911779D42F0A252400E040C6 /* PermissionManager.swift */; };
 		911779FA2F0A252400E040C6 /* InputTransmitter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 911779DD2F0A252400E040C6 /* InputTransmitter.swift */; };
 		911779FC2F0A252400E040C6 /* HotkeyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 911779FB2F0A252400E040C6 /* HotkeyManager.swift */; };
+		91AA1B2C3D4E5F6010000001 /* UDPCursorChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91AA1B2C3D4E5F6010000002 /* UDPCursorChannel.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -53,6 +54,7 @@
 		911779E42F0A252400E040C6 /* PairingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingView.swift; sourceTree = "<group>"; };
 		911779E52F0A252400E040C6 /* ScreenLayoutView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenLayoutView.swift; sourceTree = "<group>"; };
 		911779FB2F0A252400E040C6 /* HotkeyManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotkeyManager.swift; sourceTree = "<group>"; };
+		91AA1B2C3D4E5F6010000002 /* UDPCursorChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UDPCursorChannel.swift; sourceTree = "<group>"; };
 		911779FD2F0A57D600E040C6 /* Mouse2Mouse.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Mouse2Mouse.entitlements; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -128,6 +130,7 @@
 				911779DC2F0A252400E040C6 /* InputReceiver.swift */,
 				911779DD2F0A252400E040C6 /* InputTransmitter.swift */,
 				911779DE2F0A252400E040C6 /* Protocol.swift */,
+				91AA1B2C3D4E5F6010000002 /* UDPCursorChannel.swift */,
 				911779DF2F0A252400E040C6 /* WebSocketClient.swift */,
 				911779E02F0A252400E040C6 /* WebSocketServer.swift */,
 			);
@@ -240,6 +243,7 @@
 				911779F92F0A252400E040C6 /* PermissionManager.swift in Sources */,
 				911779FA2F0A252400E040C6 /* InputTransmitter.swift in Sources */,
 				911779FC2F0A252400E040C6 /* HotkeyManager.swift in Sources */,
+				91AA1B2C3D4E5F6010000001 /* UDPCursorChannel.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

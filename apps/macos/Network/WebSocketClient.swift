@@ -181,20 +181,25 @@ class ConnectionManager: ObservableObject {
         guard activeConnections[peer.id] == nil else { return }
 
         // Bonjourサービスエンドポイントを解決してからWebSocket接続
-        resolveEndpoint(peer.endpoint) { [weak self] url in
+        resolveEndpoint(peer.endpoint) { [weak self] url, host in
             guard let self = self, let url = url else {
                 print("Failed to resolve endpoint for \(peer.name)")
                 return
+            }
+            // UDPカーソルチャネルにピアIPを登録（同じIPの別ポート24801へ送信）
+            if let host = host {
+                UDPCursorChannel.shared.setPeerEndpoint(peerId: peer.id, host: host)
             }
             self.connectWebSocket(url: url, peer: peer)
         }
     }
 
     /// NWEndpointをWebSocket URLに解決（Bonjour名にスペース等が含まれていても安全）
-    private func resolveEndpoint(_ endpoint: NWEndpoint, completion: @escaping (URL?) -> Void) {
+    /// completion: (URL, NWEndpoint.Host) - 解決したIPもUDPチャネル用に返す
+    private func resolveEndpoint(_ endpoint: NWEndpoint, completion: @escaping (URL?, NWEndpoint.Host?) -> Void) {
         switch endpoint {
         case .hostPort(let host, let port):
-            completion(buildWebSocketURL(host: host, port: port))
+            completion(buildWebSocketURL(host: host, port: port), host)
 
         case .service:
             // NWConnectionでBonjourサービスをIPアドレスに解決
@@ -210,19 +215,19 @@ class ConnectionManager: ObservableObject {
                        case .hostPort(let host, let port) = resolved {
                         let url = self.buildWebSocketURL(host: host, port: port)
                         print("[ConnectionManager] Resolved endpoint: \(host):\(port) -> \(url?.absoluteString ?? "nil")")
-                        completion(url)
+                        completion(url, host)
                     } else {
-                        completion(nil)
+                        completion(nil, nil)
                     }
                     connection.cancel()
                 case .failed:
                     completed = true
-                    completion(nil)
+                    completion(nil, nil)
                     connection.cancel()
                 case .cancelled:
                     if !completed {
                         completed = true
-                        completion(nil)
+                        completion(nil, nil)
                     }
                 default:
                     break
@@ -237,11 +242,11 @@ class ConnectionManager: ObservableObject {
                 completed = true
                 print("[ConnectionManager] Endpoint resolution timed out")
                 connection.cancel()
-                completion(nil)
+                completion(nil, nil)
             }
 
         default:
-            completion(nil)
+            completion(nil, nil)
         }
     }
 
@@ -325,6 +330,7 @@ class ConnectionManager: ObservableObject {
         }
         activeConnections[peerId]?.disconnect()
         activeConnections.removeValue(forKey: peerId)
+        UDPCursorChannel.shared.removePeer(peerId: peerId)
         ScreenManager.shared.removeRemoteScreen(deviceId: peerId)
     }
 
@@ -333,6 +339,9 @@ class ConnectionManager: ObservableObject {
         if ScreenManager.shared.isControllingRemote {
             InputTransmitter.shared.stopTransmitting()
             ScreenManager.shared.returnControlToLocal()
+        }
+        for peerId in activeConnections.keys {
+            UDPCursorChannel.shared.removePeer(peerId: peerId)
         }
         for client in activeConnections.values {
             client.disconnect()

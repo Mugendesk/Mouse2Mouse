@@ -120,7 +120,8 @@ class InputTransmitter {
 
         let message = CursorMoveMessage(x: Double(normalizedX), y: Double(normalizedY))
         if let json = encoder.encode(message) {
-            sendToTarget(json)
+            // カーソル位置はUDPで送信（パケット損失を許容、TCPのhead-of-line blockingを回避）
+            UDPCursorChannel.shared.sendCursor(json, to: peerId)
         }
     }
 

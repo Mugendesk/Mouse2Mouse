@@ -142,6 +142,8 @@ class DiscoveryService: ObservableObject {
         startBrowser()
         print("[DEBUG] Starting WebSocket server (with Bonjour)...")
         startWebSocketServer()
+        print("[DEBUG] Starting UDP cursor channel...")
+        UDPCursorChannel.shared.start()
 
         isRunning = true
         print("[DEBUG] DiscoveryService started, isRunning=\(isRunning)")
@@ -153,6 +155,8 @@ class DiscoveryService: ObservableObject {
 
         webSocketServer?.stop()
         webSocketServer = nil
+
+        UDPCursorChannel.shared.stop()
 
         ConnectionManager.shared.disconnectAll()
         connectedPeers.removeAll()
@@ -282,6 +286,7 @@ class DiscoveryService: ObservableObject {
             guard let self = self else { return }
             print("[WebSocketServer] Client disconnected: \(clientId)")
             if let peerId = self.serverClientMapping[clientId] {
+                UDPCursorChannel.shared.removePeer(peerId: peerId)
                 DispatchQueue.main.async {
                     // リモートモード中なら解除
                     if ScreenManager.shared.isControllingRemote {
@@ -358,6 +363,11 @@ class DiscoveryService: ObservableObject {
                     // マッピングを保存
                     self.serverClientMapping[clientId] = peerId
                     print("[DeviceInfo] Mapped clientId \(clientId) -> peerId \(peerId)")
+
+                    // UDPカーソルチャネルにピアIP登録
+                    if let host = self.webSocketServer?.remoteHost(for: clientId) {
+                        UDPCursorChannel.shared.setPeerEndpoint(peerId: peerId, host: host)
+                    }
 
                     if let screens = msg.screens, !screens.isEmpty {
                         ScreenManager.shared.setRemoteDisplays(peerId: peerId, peerName: msg.hostname, displays: screens)
