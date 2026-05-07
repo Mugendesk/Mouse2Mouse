@@ -18,15 +18,6 @@ class InputReceiver {
     private var cachedTrustedAt: CFAbsoluteTime = 0
     private let trustedCacheTTL: CFAbsoluteTime = 5.0
 
-    // MARK: - クライアント側予測補完（FPS/格ゲー手法）
-    // 受信位置 + 速度 × 推定ネットワーク遅延 で「今頃ここにいるはず」を即適用
-    // タイマーを使わず受信時にのみ計算するのでジッターなし
-    private var lastReceivedPos: CGPoint?  // Quartz絶対座標
-    private var lastReceivedTime: CFAbsoluteTime = 0
-    private var velocity: CGPoint = .zero  // points/sec
-    private let velocitySmoothing: CGFloat = 0.5  // EMA係数 (0.5: バランス型)
-    private let leadTime: CFAbsoluteTime = 0.015  // ネットワーク遅延の見積もり (15ms)
-
     private init() {
         cachedTrusted = AXIsProcessTrusted()
         cachedTrustedAt = CFAbsoluteTimeGetCurrent()
@@ -65,28 +56,8 @@ class InputReceiver {
         let actualX = union.minX + CGFloat(x) * union.width
         let actualY = union.minY + CGFloat(y) * union.height
         let newPos = CGPoint(x: actualX, y: actualY)
-        let now = CFAbsoluteTimeGetCurrent()
-
-        // 速度を指数移動平均で更新（ノイズ低減）
-        if let prev = lastReceivedPos {
-            let dt = now - lastReceivedTime
-            if dt > 0 && dt < 0.05 {
-                let instantVx = (newPos.x - prev.x) / CGFloat(dt)
-                let instantVy = (newPos.y - prev.y) / CGFloat(dt)
-                velocity.x = velocity.x * (1 - velocitySmoothing) + instantVx * velocitySmoothing
-                velocity.y = velocity.y * (1 - velocitySmoothing) + instantVy * velocitySmoothing
-            }
-        }
-        lastReceivedPos = newPos
-        lastReceivedTime = now
         virtualCursorPosition = newPos
-
-        // 受信位置 + 速度×lead で予測位置を即適用 (15ms分の遅延を視覚的にマスク)
-        let predicted = CGPoint(
-            x: newPos.x + velocity.x * CGFloat(leadTime),
-            y: newPos.y + velocity.y * CGFloat(leadTime)
-        )
-        moveCursor(to: predicted)
+        moveCursor(to: newPos)
     }
 
     private func moveCursor(to point: CGPoint) {
