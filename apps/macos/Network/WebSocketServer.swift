@@ -108,12 +108,8 @@ class WebSocketServer {
     }
 
     func send(_ message: String, to clientId: String) {
-        if connections[clientId] != nil {
-            print("[WebSocketServer] Sending message to clientId: \(clientId)")
-            connections[clientId]?.send(message)
-        } else {
-            print("[WebSocketServer] Client not found: \(clientId)")
-            print("[WebSocketServer] Available clients: \(connections.keys)")
+        if let conn = connections[clientId] {
+            conn.send(message)  // 1000Hzで呼ばれるのでログ出さない
         }
     }
 
