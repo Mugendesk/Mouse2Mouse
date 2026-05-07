@@ -23,6 +23,15 @@ class InputReceiver {
     private var cachedTrustedAt: CFAbsoluteTime = 0
     private let trustedCacheTTL: CFAbsoluteTime = 5.0
 
+    // CGWarpMouseCursorPositionの絞り込み（Launchpadがposition変化に応じて
+    // highlight計算するため、1000Hzのwarpで崩壊する）。
+    // モニタ更新頻度の倍程度あれば視覚的に滑らかなので240Hzで十分。
+    // ドラッグ中（last warpが押下中）は全レート維持して描画/選択精度を保つ。
+    private var lastWarpTime: CFAbsoluteTime = 0
+    private let warpInterval: CFAbsoluteTime = 1.0 / 240.0
+    private var pendingWarpPosition: CGPoint?
+    private var warpFlushScheduled = false
+
 
     private init() {
         cachedTrusted = AXIsProcessTrusted()
@@ -73,25 +82,47 @@ class InputReceiver {
             return
         }
 
-        // CGWarpMouseCursorPositionで即座にカーソル位置だけ更新（最低レイテンシ）
-        // CGWarpはWindowServerに直接届くため、CGEvent.postの event tap chain を経由しない
-        CGWarpMouseCursorPosition(point)
+        let isDragging = leftButtonDown || rightButtonDown || otherButtonDown
 
-        // ドラッグ中（ボタン押下中）のみイベント発行。
-        // hover時の.mouseMovedはpostしない（Dock magnification / Mission Control /
-        // Launchpadが1000Hz hover更新で崩壊するため）。CGWarp単体でカーソル位置は
-        // 動くので操作性は維持される。hover効果（マウスオーバーでのハイライト等）は
-        // 失われるが、Dock等の暴走を防ぐためのトレードオフ。
+        // ドラッグ中はWarp/post全レートで実行（描画・選択精度のため）。
+        // hover中はWarpを240Hzに絞ってLaunchpad等の高負荷UIの暴走を防ぐ。
+        if isDragging {
+            CGWarpMouseCursorPosition(point)
+        } else {
+            // hover時: 240Hz throttleでwarp。trailing-edge flushで最終位置は確実に到達
+            let now = CFAbsoluteTimeGetCurrent()
+            if now - lastWarpTime >= warpInterval {
+                lastWarpTime = now
+                CGWarpMouseCursorPosition(point)
+                pendingWarpPosition = nil
+            } else {
+                pendingWarpPosition = point
+                if !warpFlushScheduled {
+                    warpFlushScheduled = true
+                    let delay = warpInterval - (now - lastWarpTime)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                        guard let self = self else { return }
+                        self.warpFlushScheduled = false
+                        if let pending = self.pendingWarpPosition {
+                            self.pendingWarpPosition = nil
+                            self.lastWarpTime = CFAbsoluteTimeGetCurrent()
+                            CGWarpMouseCursorPosition(pending)
+                        }
+                    }
+                }
+            }
+            // hover中はpostしない（Dock magnification暴走対策）。CGWarpだけで終了。
+            return
+        }
+
+        // ドラッグ時のイベント生成
         let (eventType, button): (CGEventType, CGMouseButton)
         if leftButtonDown {
             (eventType, button) = (.leftMouseDragged, .left)
         } else if rightButtonDown {
             (eventType, button) = (.rightMouseDragged, .right)
-        } else if otherButtonDown {
-            (eventType, button) = (.otherMouseDragged, .center)
         } else {
-            // ボタン押してない＝hover中。CGWarpだけで終了、postしない。
-            return
+            (eventType, button) = (.otherMouseDragged, .center)
         }
 
         if let moveEvent = CGEvent(
