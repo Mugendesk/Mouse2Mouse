@@ -316,22 +316,31 @@ class DiscoveryService: ObservableObject {
             }
             self.messageRates[clientId] = rate
 
+            // 高頻度パス: 入力イベントは暗号化されていないので直接decode→処理
+            // (decodeType×複数回のJSON parseを避ける)
+            if let cursorMsg = MessageEncoder.shared.decode(CursorMoveMessage.self, from: rawMessage),
+               cursorMsg.type == "cursor_move" {
+                InputReceiver.shared.handleCursorMove(x: cursorMsg.x, y: cursorMsg.y)
+                return
+            }
+
             // clientIdからpeerIdを解決（暗号化復号に必要）
             let senderPeerId = self.serverClientMapping[clientId] ?? clientId
 
-            // 暗号化メッセージのアンラップを試みる
+            // 暗号化メッセージのアンラップを試みる（初回typeデコードを保持して再利用）
+            let initialType = MessageEncoder.shared.decodeType(from: rawMessage)
             let message: String
-            if MessageEncoder.shared.decodeType(from: rawMessage) == .encrypted,
+            let type: MessageType?
+            if initialType == .encrypted,
                let decrypted = CryptoManager.shared.unwrapMessage(rawMessage, from: senderPeerId) {
                 message = decrypted
+                type = MessageEncoder.shared.decodeType(from: message)
             } else {
                 message = rawMessage
+                type = initialType
             }
 
-            // サーバー経由で受信したメッセージを処理
-            guard let type = MessageEncoder.shared.decodeType(from: message) else {
-                return
-            }
+            guard let type = type else { return }
 
             switch type {
             case .ping:
