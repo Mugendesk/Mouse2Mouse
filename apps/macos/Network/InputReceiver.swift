@@ -23,6 +23,12 @@ class InputReceiver {
     private var cachedTrustedAt: CFAbsoluteTime = 0
     private let trustedCacheTTL: CFAbsoluteTime = 5.0
 
+    // mouseMovedイベントpostの絞り込み（Dock magnification / MCのwindow hover等が
+    // 1000Hzのhoverイベントで崩壊するため120Hzに制限）。
+    // ドラッグ中(.leftMouseDragged等)は精度が必要なので絞らない。
+    private var lastMoveEventPostTime: CFAbsoluteTime = 0
+    private let mouseMovedPostInterval: CFAbsoluteTime = 1.0 / 120.0
+
     private init() {
         cachedTrusted = AXIsProcessTrusted()
         cachedTrustedAt = CFAbsoluteTimeGetCurrent()
@@ -78,15 +84,23 @@ class InputReceiver {
 
         // ボタン押下中は Dragged イベントを発行（テキスト選択・ウィンドウ移動・Finderドラッグ等を成立させる）
         // 未押下時のみ mouseMoved（ホバー効果用）
-        let (eventType, button): (CGEventType, CGMouseButton)
+        let (eventType, button, isDragging): (CGEventType, CGMouseButton, Bool)
         if leftButtonDown {
-            (eventType, button) = (.leftMouseDragged, .left)
+            (eventType, button, isDragging) = (.leftMouseDragged, .left, true)
         } else if rightButtonDown {
-            (eventType, button) = (.rightMouseDragged, .right)
+            (eventType, button, isDragging) = (.rightMouseDragged, .right, true)
         } else if otherButtonDown {
-            (eventType, button) = (.otherMouseDragged, .center)
+            (eventType, button, isDragging) = (.otherMouseDragged, .center, true)
         } else {
-            (eventType, button) = (.mouseMoved, .left)
+            (eventType, button, isDragging) = (.mouseMoved, .left, false)
+        }
+
+        // mouseMoved（hover）は120Hzに制限。Dock magnification/MC等が1000Hz hover
+        // イベントで崩壊する問題対策。ドラッグ中は全レート維持（描画/選択精度のため）。
+        if !isDragging {
+            let now = CFAbsoluteTimeGetCurrent()
+            if now - lastMoveEventPostTime < mouseMovedPostInterval { return }
+            lastMoveEventPostTime = now
         }
 
         if let moveEvent = CGEvent(
