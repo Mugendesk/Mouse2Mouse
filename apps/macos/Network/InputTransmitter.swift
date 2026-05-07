@@ -96,27 +96,9 @@ class InputTransmitter {
 
     private func sendCursorMove(_ position: CGPoint) {
         guard isTransmitting, targetPeerId != nil else { return }
-
-        let now = CFAbsoluteTimeGetCurrent()
-        let elapsed = now - lastCursorSendTime
-
-        if elapsed >= cursorSendInterval {
-            // すぐに送信
-            lastCursorSendTime = now
-            pendingCursorPosition = nil
-            cursorFlushScheduled = false
-            actuallySendCursor(position)
-        } else {
-            // レート制限中: 最新位置を保持し、間隔到達時にflush
-            pendingCursorPosition = position
-            if !cursorFlushScheduled {
-                cursorFlushScheduled = true
-                let delay = cursorSendInterval - elapsed
-                DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-                    self?.flushPendingCursor()
-                }
-            }
-        }
+        // スロットル撤廃: macOSが既にmouseMovedを表示更新間隔に間引いてるので
+        // 受け取った全イベントを即送信する方がジッターが少ない
+        actuallySendCursor(position)
     }
 
     private func flushPendingCursor() {
