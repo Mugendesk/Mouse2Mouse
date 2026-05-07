@@ -35,6 +35,10 @@ class InputReceiver {
     private var warpFlushScheduled = false
     private var lastMoveEventPostTime: CFAbsoluteTime = 0
     private let mouseMovedPostInterval: CFAbsoluteTime = 1.0 / 60.0
+    // Launchpad/MC等はmouseEventDeltaX/Yで「動いた」を判定するため、
+    // delta=0だと「動いてない」と認識されhighlightが付いてこない（カーソル
+    // ダブり症状の原因）。前回post位置からのdeltaを必ず設定する。
+    private var lastPostedPosition: CGPoint?
 
 
     private init() {
@@ -140,6 +144,13 @@ class InputReceiver {
             mouseCursorPosition: point,
             mouseButton: button
         ) {
+            // delta値を設定（Launchpad/MC等の「動いた」検知に必要）
+            let prev = lastPostedPosition ?? point
+            let dx = Int64((point.x - prev.x).rounded())
+            let dy = Int64((point.y - prev.y).rounded())
+            moveEvent.setIntegerValueField(.mouseEventDeltaX, value: dx)
+            moveEvent.setIntegerValueField(.mouseEventDeltaY, value: dy)
+            lastPostedPosition = point
             moveEvent.post(tap: .cghidEventTap)
         }
     }
