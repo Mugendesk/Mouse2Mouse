@@ -7,6 +7,9 @@ struct MenuBarView: View {
     @EnvironmentObject var screenManager: ScreenManager
     @EnvironmentObject var hotkeyManager: HotkeyManager
 
+    // 送信側スクロール反転（相手のナチュラルスクロール設定が逆だと向きが反対になるので補正）
+    @AppStorage("Mouse2Mouse.InvertScroll") private var invertScroll: Bool = false
+
     var body: some View {
         VStack(spacing: 0) {
             // Header
@@ -88,6 +91,9 @@ struct MenuBarView: View {
             // 親子役割切り替え
             roleToggleSection
 
+            // スクロール方向反転トグル
+            invertScrollToggleSection
+
             if let info = discoveryService.localDeviceInfo {
                 HStack {
                     Text("画面: \(info.screenWidth) × \(info.screenHeight)")
@@ -139,6 +145,35 @@ struct MenuBarView: View {
                 .labelsHidden()
         }
         .padding(.vertical, 4)
+    }
+
+    // MARK: - Invert Scroll Toggle
+
+    private var invertScrollToggleSection: some View {
+        HStack {
+            Image(systemName: "arrow.up.arrow.down")
+                .foregroundColor(invertScroll ? .blue : .secondary)
+
+            Text("スクロール反転")
+                .font(.subheadline)
+
+            Spacer()
+
+            Text(invertScroll ? "ON" : "OFF")
+                .font(.caption2)
+                .foregroundColor(.secondary)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(Color.secondary.opacity(0.1))
+                .cornerRadius(4)
+
+            Toggle("", isOn: $invertScroll)
+                .toggleStyle(.switch)
+                .controlSize(.small)
+                .labelsHidden()
+        }
+        .padding(.vertical, 4)
+        .help("相手のMacのナチュラルスクロール設定がこのMacと逆の場合にONにする")
     }
 
     // MARK: - Role Toggle

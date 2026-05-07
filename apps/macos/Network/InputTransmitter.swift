@@ -135,7 +135,13 @@ class InputTransmitter {
     private func sendScroll(dx: Double, dy: Double) {
         guard isTransmitting else { return }
 
-        let message = ScrollMessage(dx: dx, dy: dy)
+        // ホスト側「ナチュラルスクロール ON/OFF」と相手側設定が食い違うと
+        // スクロールが逆方向になる。この設定で送信時に符号反転させる。
+        let invert = UserDefaults.standard.bool(forKey: "Mouse2Mouse.InvertScroll")
+        let sx = invert ? -dx : dx
+        let sy = invert ? -dy : dy
+
+        let message = ScrollMessage(dx: sx, dy: sy)
 
         if let json = encoder.encode(message) {
             sendToTarget(json)
