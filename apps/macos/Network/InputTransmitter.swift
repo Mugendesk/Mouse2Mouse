@@ -224,9 +224,11 @@ class InputTransmitter {
 
     // MARK: - Helpers
 
+    /// 入力メッセージは暗号化スキップ（高頻度のため負荷削減、TOFU LAN前提）
+    /// 機密性が必要なメッセージ(deviceInfo/clipboard等)はDiscoveryService側で暗号化
     private func sendToTarget(_ message: String) {
         if let peerId = targetPeerId {
-            DiscoveryService.shared.send(message, to: peerId)
+            DiscoveryService.shared.send(message, to: peerId, encrypt: false)
         }
     }
 
