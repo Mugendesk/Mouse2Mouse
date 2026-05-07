@@ -266,8 +266,9 @@ class DiscoveryService: ObservableObject {
     private var serverClientMapping: [String: String] = [:]
 
     // メッセージレート制限（DoS防止）
+    // カーソル1000Hz + heartbeat + 余裕で2000/sec
     private var messageRates: [String: (count: Int, resetTime: Date)] = [:]
-    private let maxMessagesPerSecond = 200
+    private let maxMessagesPerSecond = 2000
 
     private func startWebSocketServer() {
         webSocketServer = WebSocketServer(port: defaultPort)
