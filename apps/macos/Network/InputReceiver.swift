@@ -13,6 +13,11 @@ class InputReceiver {
     private var scrollResidualX: Double = 0
     private var scrollResidualY: Double = 0
 
+    // ボタン押下状態（押下中の移動はDraggedイベントとして発火させるため必要）
+    private var leftButtonDown = false
+    private var rightButtonDown = false
+    private var otherButtonDown = false
+
     // AXIsProcessTrusted()キャッシュ（毎フレーム呼ぶと遅いため5秒間隔で更新）
     private var cachedTrusted: Bool = false
     private var cachedTrustedAt: CFAbsoluteTime = 0
@@ -71,13 +76,24 @@ class InputReceiver {
         // CGWarpはWindowServerに直接届くため、CGEvent.postの event tap chain を経由しない
         CGWarpMouseCursorPosition(point)
 
-        // ホバー効果やドラッグ判定のためにmouseMovedイベントも発行
-        // (CGWarpはイベントを生成しないため)
+        // ボタン押下中は Dragged イベントを発行（テキスト選択・ウィンドウ移動・Finderドラッグ等を成立させる）
+        // 未押下時のみ mouseMoved（ホバー効果用）
+        let (eventType, button): (CGEventType, CGMouseButton)
+        if leftButtonDown {
+            (eventType, button) = (.leftMouseDragged, .left)
+        } else if rightButtonDown {
+            (eventType, button) = (.rightMouseDragged, .right)
+        } else if otherButtonDown {
+            (eventType, button) = (.otherMouseDragged, .center)
+        } else {
+            (eventType, button) = (.mouseMoved, .left)
+        }
+
         if let moveEvent = CGEvent(
             mouseEventSource: nil,
-            mouseType: .mouseMoved,
+            mouseType: eventType,
             mouseCursorPosition: point,
-            mouseButton: .left
+            mouseButton: button
         ) {
             moveEvent.post(tap: .cghidEventTap)
         }
@@ -95,14 +111,17 @@ class InputReceiver {
             mouseButton = .left
             downType = .leftMouseDown
             upType = .leftMouseUp
+            leftButtonDown = isDown
         case 1:  // Right
             mouseButton = .right
             downType = .rightMouseDown
             upType = .rightMouseUp
+            rightButtonDown = isDown
         case 2:  // Middle
             mouseButton = .center
             downType = .otherMouseDown
             upType = .otherMouseUp
+            otherButtonDown = isDown
         default:
             return
         }

@@ -556,6 +556,11 @@ class ScreenManager: ObservableObject {
             deviceRole = role
             print("[ScreenManager] Role loaded: \(role.rawValue)")
         }
+        // Hostならイベントタップ起動（loadRole経由のみだとstartCapturingが
+        // 呼ばれないケースがあるため、ここで明示的に呼ぶ）
+        if deviceRole == .host {
+            InputCapture.shared.startCapturing()
+        }
     }
 
     // MARK: - Layout Persistence
