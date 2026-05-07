@@ -357,54 +357,31 @@ class DiscoveryService: ObservableObject {
                 return
             case .deviceInfo:
                 if let msg = MessageEncoder.shared.decode(DeviceInfoMessage.self, from: message) {
-                    // peerIdを取得（discoveredPeersから、またはhostnameベース）
-                    let peerId = self.discoveredPeers.first(where: { $0.deviceInfo?.hostname == msg.hostname })?.id ?? "\(msg.hostname)._mugendesk._tcp.local."
-
-                    // マッピングを保存
-                    self.serverClientMapping[clientId] = peerId
-                    print("[DeviceInfo] Mapped clientId \(clientId) -> peerId \(peerId)")
-
-                    // UDPカーソルチャネルにピアIP登録
-                    if let host = self.webSocketServer?.remoteHost(for: clientId) {
-                        UDPCursorChannel.shared.setPeerEndpoint(peerId: peerId, host: host)
-                    }
-
-                    if let screens = msg.screens, !screens.isEmpty {
-                        ScreenManager.shared.setRemoteDisplays(peerId: peerId, peerName: msg.hostname, displays: screens)
+                    // ペアリング承認ゲート：未ペアならユーザー確認を待つ
+                    if PairingManager.shared.isPaired(deviceId: msg.deviceId) {
+                        self.proceedDeviceInfo(msg, clientId: clientId)
                     } else {
-                        // 後方互換: screensが無ければunion情報のみで単一ディスプレイ扱い
-                        ScreenManager.shared.addRemoteScreen(
-                            deviceId: peerId,
-                            name: msg.hostname,
-                            width: CGFloat(msg.screenWidth),
-                            height: CGFloat(msg.screenHeight)
-                        )
-                    }
-                    print("[DeviceInfo] Added \(msg.screens?.count ?? 1) display(s) for peer \(msg.hostname) [\(peerId)]")
-
-                    // 接続完了をconnectedPeersに追加
-                    if let peer = self.discoveredPeers.first(where: { $0.id == peerId }) {
-                        var updated = peer
-                        updated.isConnected = true
-                        DispatchQueue.main.async {
-                            if !DiscoveryService.shared.connectedPeers.contains(where: { $0.id == peerId }) {
-                                DiscoveryService.shared.connectedPeers.append(updated)
+                        let publicKeyData = msg.publicKey.flatMap { Data(base64Encoded: $0) } ?? Data()
+                        print("[Pairing] Approval requested for \(msg.hostname) [\(msg.deviceId)]")
+                        PairingManager.shared.requestApproval(
+                            deviceId: msg.deviceId,
+                            hostname: msg.hostname,
+                            publicKey: publicKeyData
+                        ) { [weak self] approved in
+                            guard let self = self else { return }
+                            if approved {
+                                self.proceedDeviceInfo(msg, clientId: clientId)
+                            } else {
+                                let response = PairingResponseMessage(accepted: false)
+                                if let json = MessageEncoder.shared.encode(response) {
+                                    self.webSocketServer?.send(json, to: clientId)
+                                }
+                                // 拒否メッセージ送信を待ってから切断
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                                    self.webSocketServer?.disconnect(clientId: clientId)
+                                }
                             }
                         }
-                    }
-
-                    // TOFU: 相手の公開鍵からセッション鍵を導出
-                    if let peerKey = msg.publicKey {
-                        if CryptoManager.shared.deriveSessionKey(peerPublicKeyBase64: peerKey, peerId: peerId) {
-                            print("[TOFU] Session key derived for \(peerId) (server side)")
-                        }
-                    }
-
-                    // 自分のdeviceInfoを返信（鍵交換に使うので暗号化しない）
-                    if let responseMsg = self.buildLocalDeviceInfoMessage(),
-                       let json = MessageEncoder.shared.encode(responseMsg) {
-                        self.webSocketServer?.send(json, to: clientId)
-                        print("[DeviceInfo] Sent deviceInfo response to clientId: \(clientId)")
                     }
                 }
             case .screenLayout:
@@ -499,6 +476,61 @@ class DiscoveryService: ObservableObject {
             webSocketServer?.start(bonjourName: info.hostname, txtRecord: txtRecord)
         } else {
             webSocketServer?.start()
+        }
+    }
+
+    // MARK: - DeviceInfo Processing (post-approval)
+
+    /// 承認後の deviceInfo 受け入れ処理（ペア済み or 承認直後の共通フロー）
+    fileprivate func proceedDeviceInfo(_ msg: DeviceInfoMessage, clientId: String) {
+        // peerIdを取得（discoveredPeersから、またはhostnameベース）
+        let peerId = self.discoveredPeers.first(where: { $0.deviceInfo?.hostname == msg.hostname })?.id ?? "\(msg.hostname)._mugendesk._tcp.local."
+
+        // マッピングを保存
+        self.serverClientMapping[clientId] = peerId
+        print("[DeviceInfo] Mapped clientId \(clientId) -> peerId \(peerId)")
+
+        // UDPカーソルチャネルにピアIP登録
+        if let host = self.webSocketServer?.remoteHost(for: clientId) {
+            UDPCursorChannel.shared.setPeerEndpoint(peerId: peerId, host: host)
+        }
+
+        if let screens = msg.screens, !screens.isEmpty {
+            ScreenManager.shared.setRemoteDisplays(peerId: peerId, peerName: msg.hostname, displays: screens)
+        } else {
+            // 後方互換: screensが無ければunion情報のみで単一ディスプレイ扱い
+            ScreenManager.shared.addRemoteScreen(
+                deviceId: peerId,
+                name: msg.hostname,
+                width: CGFloat(msg.screenWidth),
+                height: CGFloat(msg.screenHeight)
+            )
+        }
+        print("[DeviceInfo] Added \(msg.screens?.count ?? 1) display(s) for peer \(msg.hostname) [\(peerId)]")
+
+        // 接続完了をconnectedPeersに追加
+        if let peer = self.discoveredPeers.first(where: { $0.id == peerId }) {
+            var updated = peer
+            updated.isConnected = true
+            DispatchQueue.main.async {
+                if !DiscoveryService.shared.connectedPeers.contains(where: { $0.id == peerId }) {
+                    DiscoveryService.shared.connectedPeers.append(updated)
+                }
+            }
+        }
+
+        // TOFU: 相手の公開鍵からセッション鍵を導出
+        if let peerKey = msg.publicKey {
+            if CryptoManager.shared.deriveSessionKey(peerPublicKeyBase64: peerKey, peerId: peerId) {
+                print("[TOFU] Session key derived for \(peerId) (server side)")
+            }
+        }
+
+        // 自分のdeviceInfoを返信（鍵交換に使うので暗号化しない）
+        if let responseMsg = self.buildLocalDeviceInfoMessage(),
+           let json = MessageEncoder.shared.encode(responseMsg) {
+            self.webSocketServer?.send(json, to: clientId)
+            print("[DeviceInfo] Sent deviceInfo response to clientId: \(clientId)")
         }
     }
 

@@ -113,6 +113,15 @@ class WebSocketServer {
         }
     }
 
+    /// 指定クライアントを切断（ペアリング拒否時等）
+    func disconnect(clientId: String) {
+        if let conn = connections[clientId] {
+            conn.close()
+            connections.removeValue(forKey: clientId)
+            print("[WebSocketServer] Disconnected client: \(clientId)")
+        }
+    }
+
     func remapClient(from oldId: String, to newId: String) {
         if let connection = connections[oldId] {
             connections.removeValue(forKey: oldId)

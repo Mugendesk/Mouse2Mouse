@@ -44,6 +44,12 @@ class InputCapture: ObservableObject {
     private let inputWatchdogTimeout: CFAbsoluteTime = 30.0
     private let peerWatchdogTimeout: CFAbsoluteTime = 5.0
 
+    // カーソル隠匿の定期再アサート（macOSの「アクティブアプリじゃないとhide効かない」仕様
+    // および行き来でフォーカスが外れた時の解除を防ぐ防御策）
+    private var cursorHideReassertTimer: DispatchSourceTimer?
+    // CGDisplayHideCursorは内部で参照カウントを持つので、hide回数だけshowしないと残ハイドになる。
+    private var hideCursorCount: Int = 0
+
     /// ピアからメッセージ受信時に呼ぶ（無音検知のリセット）
     func peerMessageReceived() {
         lastPeerMessageTimestamp = CFAbsoluteTimeGetCurrent()
@@ -163,14 +169,29 @@ class InputCapture: ObservableObject {
         }
         isRemoteMode = true
         virtualCursorPosition = entryPoint
-        // イベントを消費できるようにdefaultTapで再作成
-        restartCapturing(withDefaultTap: true)
-        // カーソルをハードウェアから切り離し（macOS 14+でCGAssociateだけだと不安定なので
-        // CGDisplayHideCursorも併用してホスト側のカーソルを完全に消す）
+
+        // CGDisplayHideCursorは「呼び出しアプリがactiveでないと実質hideしない」仕様の罠あり。
+        // menubarアプリ(.accessory)は普通active扱いされず、行き来後に解除される。
+        // 自分をactiveにしてからhide+disassociateを行い、確実に効かせる。
+        DispatchQueue.main.async {
+            NSApp.activate(ignoringOtherApps: true)
+        }
+
+        // タップ再生成"前"にカーソルを切り離す（タップ再生成で関連付けが
+        // リセットされる経験的バグを避けるため、freeze→tap restartの順）
         let assocErr = CGAssociateMouseAndMouseCursorPosition(0)
         let hideErr = CGDisplayHideCursor(CGMainDisplayID())
+        hideCursorCount += 1
+
+        // イベントを消費できるようにdefaultTapで再作成
+        restartCapturing(withDefaultTap: true)
+
         // ウォッチドッグ開始（イベント途絶で自動解除）
         startWatchdog()
+
+        // カーソル非表示を定期的に再アサート（フォーカス変化で解除されるのを防ぐ）
+        startCursorHideReassert()
+
         print("[InputCapture] Entered remote mode at \(entryPoint) assocErr=\(assocErr.rawValue) hideErr=\(hideErr.rawValue)")
     }
 
@@ -180,12 +201,49 @@ class InputCapture: ObservableObject {
         isRemoteMode = false
         // ウォッチドッグ停止
         stopWatchdog()
-        // カーソル復元（hide/disassociate両方戻す。順序は逆順）
-        CGDisplayShowCursor(CGMainDisplayID())
+        // 再アサートタイマー停止
+        stopCursorHideReassert()
+        // カーソル復元（hideした回数だけshowを呼ぶ。残ハイド防止）
+        while hideCursorCount > 0 {
+            CGDisplayShowCursor(CGMainDisplayID())
+            hideCursorCount -= 1
+        }
         CGAssociateMouseAndMouseCursorPosition(1)
         // listenOnlyに戻す（安全 — フォールバックでマウスのみになっても入力はブロックされない）
         restartCapturing(withDefaultTap: false)
         print("[InputCapture] Exited remote mode (keyboard: \(hasKeyboardCapture))")
+    }
+
+    // MARK: - Cursor Hide Re-assert
+
+    /// 250ms周期でCGDisplayHideCursor + CGAssociate(0)を再呼出。
+    /// フォーカス変化やタップ再作成で解除されるケースに対する防御。
+    private func startCursorHideReassert() {
+        stopCursorHideReassert()
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(deadline: .now() + 0.25, repeating: 0.25)
+        timer.setEventHandler { [weak self] in
+            guard let self = self, self.isRemoteMode else { return }
+            // hide/disassociateは冪等じゃないので毎回increment/decrementするとカウンタが狂う。
+            // CGDisplayHideCursorは"hide count"が増えるが、後でshowで戻すので段差を毎回減らさず維持。
+            // 実用上は「既にhideされてる状態でもう一度hide」しても問題ないが、
+            // exitで1回しかshowしないと残ハイドが発生してしまう。
+            // → 代わりに「CGAssociate(0)だけ再呼出 + activate」を毎回。hideは一度だけ。
+            CGAssociateMouseAndMouseCursorPosition(0)
+            // フォーカスが外れていたらactivate＋hide再呼出
+            if !NSApp.isActive {
+                NSApp.activate(ignoringOtherApps: true)
+                CGDisplayHideCursor(CGMainDisplayID())
+                self.hideCursorCount += 1
+            }
+        }
+        timer.resume()
+        cursorHideReassertTimer = timer
+    }
+
+    private func stopCursorHideReassert() {
+        cursorHideReassertTimer?.cancel()
+        cursorHideReassertTimer = nil
     }
 
     /// タップを再作成（listenOnly <-> defaultTap の切り替え）
@@ -507,8 +565,14 @@ class InputCapture: ObservableObject {
     /// パニック脱出: あらゆる状態を強制リセットしてカーソルを解放
     /// 通常のexitRemoteMode経路が失敗していても確実にロックを解除する最終手段
     func panicReset() {
-        // 1. カーソル表示と関連付けを最優先で復元（他の処理が失敗しても確実に解除）
-        CGDisplayShowCursor(CGMainDisplayID())
+        // 1. カーソル表示と関連付けを最優先で復元（hideカウンタ分Show、念押しで余分にも実行）
+        stopCursorHideReassert()
+        for _ in 0..<max(1, hideCursorCount) {
+            CGDisplayShowCursor(CGMainDisplayID())
+        }
+        // カウンタが食い違ってる可能性に備えて余分にもShow（macOSは0未満にならないので無害）
+        for _ in 0..<5 { CGDisplayShowCursor(CGMainDisplayID()) }
+        hideCursorCount = 0
         CGAssociateMouseAndMouseCursorPosition(1)
 
         // 2. 全状態をクリア

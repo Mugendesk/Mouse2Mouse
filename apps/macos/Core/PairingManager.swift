@@ -12,6 +12,7 @@ class PairingManager: ObservableObject {
 
     @Published var pairedDevices: [PairedDevice] = []
     @Published var pendingPairingRequest: PairingRequest?
+    @Published var pendingApproval: PendingApproval?
 
     // MARK: - Types
 
@@ -28,6 +29,15 @@ class PairingManager: ObservableObject {
         let publicKey: Data
         let code: String
         let expiresAt: Date
+    }
+
+    /// AirDrop風の承認待ち要求（コード不要、即許可/拒否）
+    struct PendingApproval: Identifiable {
+        let id = UUID()
+        let deviceId: String
+        let hostname: String
+        let publicKey: Data
+        let callback: (Bool) -> Void
     }
 
     // MARK: - Constants
@@ -111,6 +121,55 @@ class PairingManager: ObservableObject {
     /// ペアリングリクエストをキャンセル
     func cancelPairingRequest() {
         pendingPairingRequest = nil
+    }
+
+    // MARK: - Approval-based Pairing (AirDrop style)
+
+    /// 承認を要求（受け側UIでダイアログを出すため）
+    /// completion はメインスレッドで呼び出される
+    func requestApproval(
+        deviceId: String,
+        hostname: String,
+        publicKey: Data,
+        completion: @escaping (Bool) -> Void
+    ) {
+        DispatchQueue.main.async {
+            self.pendingApproval = PendingApproval(
+                deviceId: deviceId,
+                hostname: hostname,
+                publicKey: publicKey,
+                callback: completion
+            )
+        }
+    }
+
+    /// 承認ダイアログのユーザー応答を反映
+    func respondToApproval(approved: Bool) {
+        guard let pending = pendingApproval else { return }
+        if approved {
+            recordTrust(deviceId: pending.deviceId, hostname: pending.hostname, publicKey: pending.publicKey)
+        }
+        pending.callback(approved)
+        pendingApproval = nil
+    }
+
+    /// ペアリング情報を信頼済みに追加（クライアント側の接続成功時にも使用）
+    func recordTrust(deviceId: String, hostname: String, publicKey: Data) {
+        let device = PairedDevice(
+            id: deviceId,
+            hostname: hostname,
+            publicKey: publicKey,
+            pairedAt: Date()
+        )
+        DispatchQueue.main.async {
+            if let index = self.pairedDevices.firstIndex(where: { $0.id == device.id }) {
+                self.pairedDevices[index] = device
+            } else {
+                self.pairedDevices.append(device)
+            }
+            self.savePairedDevices()
+            print("[PairingManager] Trust recorded: \(hostname) [\(deviceId)]")
+        }
     }
 
     // MARK: - Device Management

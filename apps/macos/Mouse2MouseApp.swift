@@ -59,8 +59,33 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // 通知権限リクエスト
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
 
+        // ペアリング承認ダイアログの監視
+        installPairingApprovalHandler()
+
         // サービス起動
         startServices()
+    }
+
+    // MARK: - Pairing Approval
+
+    private func installPairingApprovalHandler() {
+        PairingManager.shared.$pendingApproval
+            .receive(on: DispatchQueue.main)
+            .sink { pending in
+                guard let pending = pending else { return }
+                let alert = NSAlert()
+                alert.messageText = "\(pending.hostname) からの接続要求"
+                alert.informativeText = "このデバイスとペアリングして接続を許可しますか？\n一度許可すると以降は自動的に承認されます。"
+                alert.alertStyle = .warning
+                alert.addButton(withTitle: "許可")
+                alert.addButton(withTitle: "拒否")
+                NSApp.activate(ignoringOtherApps: true)
+                let response = alert.runModal()
+                let approved = response == .alertFirstButtonReturn
+                PairingManager.shared.respondToApproval(approved: approved)
+                print("[Pairing] User \(approved ? "approved" : "rejected") \(pending.hostname)")
+            }
+            .store(in: &cancellables)
     }
 
     private func setupMenuBar() {

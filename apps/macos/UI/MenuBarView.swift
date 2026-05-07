@@ -265,6 +265,12 @@ struct MenuBarView: View {
             }
             .buttonStyle(.bordered)
 
+            Button(action: openPairedDevicesWindow) {
+                Label("信頼済みデバイス", systemImage: "person.2.badge.key.fill")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+
             HStack(spacing: 8) {
                 Button(action: toggleService) {
                     Label(

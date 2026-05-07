@@ -1,6 +1,7 @@
 import Foundation
 import Combine
 import Network
+import AppKit
 
 /// WebSocketクライアント
 /// URLSessionWebSocketTaskを使用したWebSocket接続
@@ -415,6 +416,11 @@ class ConnectionManager: ObservableObject {
                 handleDeviceInfo(msg, from: peerId)
             }
 
+        case .pairingResponse:
+            if let msg = MessageEncoder.shared.decode(PairingResponseMessage.self, from: message) {
+                handlePairingResponse(msg, from: peerId)
+            }
+
         case .screenLayout:
             if let msg = MessageEncoder.shared.decode(ScreenLayoutMessage.self, from: message) {
                 handleScreenLayout(msg, from: peerId)
@@ -482,6 +488,30 @@ class ConnectionManager: ObservableObject {
             )
         }
         print("[DeviceInfo] Added \(message.screens?.count ?? 1) display(s) for peer \(message.hostname) [\(peerId)]")
+
+        // 接続成功 = サーバー側が受諾した = 信頼を記録（次回以降は相互ペア済み扱い）
+        let publicKeyData = message.publicKey.flatMap { Data(base64Encoded: $0) } ?? Data()
+        PairingManager.shared.recordTrust(
+            deviceId: message.deviceId,
+            hostname: message.hostname,
+            publicKey: publicKeyData
+        )
+    }
+
+    private func handlePairingResponse(_ message: PairingResponseMessage, from peerId: String) {
+        if !message.accepted {
+            print("[Pairing] Connection rejected by \(peerId)")
+            DispatchQueue.main.async {
+                ConnectionManager.shared.disconnect(from: peerId)
+                let alert = NSAlert()
+                alert.messageText = "接続が拒否されました"
+                alert.informativeText = "相手のデバイスでペアリングが拒否されました。"
+                alert.alertStyle = .warning
+                alert.addButton(withTitle: "OK")
+                NSApp.activate(ignoringOtherApps: true)
+                alert.runModal()
+            }
+        }
     }
 
     private func handleScreenLayout(_ message: ScreenLayoutMessage, from peerId: String) {
