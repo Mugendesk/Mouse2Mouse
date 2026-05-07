@@ -216,26 +216,19 @@ class InputCapture: ObservableObject {
 
     // MARK: - Cursor Hide Re-assert
 
-    /// 250ms周期でCGDisplayHideCursor + CGAssociate(0)を再呼出。
-    /// フォーカス変化やタップ再作成で解除されるケースに対する防御。
+    /// 500ms周期でCGAssociate(0)だけ再呼出する軽量再アサート。
+    /// activate/hideは呼ばない（Launchpadや通知センター等のシステムUIと
+    /// フォーカスを奪い合うとマウスが暴れるため）。
+    /// CGAssociate(0)は冪等なのでカウンタも狂わない。
     private func startCursorHideReassert() {
         stopCursorHideReassert()
         let timer = DispatchSource.makeTimerSource(queue: .main)
-        timer.schedule(deadline: .now() + 0.25, repeating: 0.25)
+        timer.schedule(deadline: .now() + 0.5, repeating: 0.5)
         timer.setEventHandler { [weak self] in
             guard let self = self, self.isRemoteMode else { return }
-            // hide/disassociateは冪等じゃないので毎回increment/decrementするとカウンタが狂う。
-            // CGDisplayHideCursorは"hide count"が増えるが、後でshowで戻すので段差を毎回減らさず維持。
-            // 実用上は「既にhideされてる状態でもう一度hide」しても問題ないが、
-            // exitで1回しかshowしないと残ハイドが発生してしまう。
-            // → 代わりに「CGAssociate(0)だけ再呼出 + activate」を毎回。hideは一度だけ。
+            // CGAssociate(0)だけ再アサート。これだけでハードウェアからカーソル切り離せる。
+            // hide/activateは呼ばない（システムUIとの競合回避）
             CGAssociateMouseAndMouseCursorPosition(0)
-            // フォーカスが外れていたらactivate＋hide再呼出
-            if !NSApp.isActive {
-                NSApp.activate(ignoringOtherApps: true)
-                CGDisplayHideCursor(CGMainDisplayID())
-                self.hideCursorCount += 1
-            }
         }
         timer.resume()
         cursorHideReassertTimer = timer
