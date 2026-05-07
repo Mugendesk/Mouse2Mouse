@@ -23,11 +23,6 @@ class InputReceiver {
     private var cachedTrustedAt: CFAbsoluteTime = 0
     private let trustedCacheTTL: CFAbsoluteTime = 5.0
 
-    // mouseMovedイベントpostの絞り込み（Dock magnification / MCのwindow hover等が
-    // 1000Hzのhoverイベントで崩壊するため120Hzに制限）。
-    // ドラッグ中(.leftMouseDragged等)は精度が必要なので絞らない。
-    private var lastMoveEventPostTime: CFAbsoluteTime = 0
-    private let mouseMovedPostInterval: CFAbsoluteTime = 1.0 / 120.0
 
     private init() {
         cachedTrusted = AXIsProcessTrusted()
@@ -82,25 +77,21 @@ class InputReceiver {
         // CGWarpはWindowServerに直接届くため、CGEvent.postの event tap chain を経由しない
         CGWarpMouseCursorPosition(point)
 
-        // ボタン押下中は Dragged イベントを発行（テキスト選択・ウィンドウ移動・Finderドラッグ等を成立させる）
-        // 未押下時のみ mouseMoved（ホバー効果用）
-        let (eventType, button, isDragging): (CGEventType, CGMouseButton, Bool)
+        // ドラッグ中（ボタン押下中）のみイベント発行。
+        // hover時の.mouseMovedはpostしない（Dock magnification / Mission Control /
+        // Launchpadが1000Hz hover更新で崩壊するため）。CGWarp単体でカーソル位置は
+        // 動くので操作性は維持される。hover効果（マウスオーバーでのハイライト等）は
+        // 失われるが、Dock等の暴走を防ぐためのトレードオフ。
+        let (eventType, button): (CGEventType, CGMouseButton)
         if leftButtonDown {
-            (eventType, button, isDragging) = (.leftMouseDragged, .left, true)
+            (eventType, button) = (.leftMouseDragged, .left)
         } else if rightButtonDown {
-            (eventType, button, isDragging) = (.rightMouseDragged, .right, true)
+            (eventType, button) = (.rightMouseDragged, .right)
         } else if otherButtonDown {
-            (eventType, button, isDragging) = (.otherMouseDragged, .center, true)
+            (eventType, button) = (.otherMouseDragged, .center)
         } else {
-            (eventType, button, isDragging) = (.mouseMoved, .left, false)
-        }
-
-        // mouseMoved（hover）は120Hzに制限。Dock magnification/MC等が1000Hz hover
-        // イベントで崩壊する問題対策。ドラッグ中は全レート維持（描画/選択精度のため）。
-        if !isDragging {
-            let now = CFAbsoluteTimeGetCurrent()
-            if now - lastMoveEventPostTime < mouseMovedPostInterval { return }
-            lastMoveEventPostTime = now
+            // ボタン押してない＝hover中。CGWarpだけで終了、postしない。
+            return
         }
 
         if let moveEvent = CGEvent(
