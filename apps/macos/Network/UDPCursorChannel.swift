@@ -32,14 +32,15 @@ private struct CursorPacket {
     }
 
     static func decode(_ data: Data) -> CursorPacket? {
-        guard data.count == size,
-              data[0] == magic,
-              data[1] == version else { return nil }
-        return data.withUnsafeBytes { buf -> CursorPacket? in
-            let base = buf.baseAddress!
-            let ts = (base + 2).load(fromByteOffset: 0, as: UInt64.self)
-            let bx = (base + 10).load(fromByteOffset: 0, as: UInt64.self)
-            let by = (base + 18).load(fromByteOffset: 0, as: UInt64.self)
+        guard data.count >= size else { return nil }
+        return data.withUnsafeBytes { (buf: UnsafeRawBufferPointer) -> CursorPacket? in
+            guard buf.count >= size,
+                  buf[0] == magic,
+                  buf[1] == version else { return nil }
+            // loadUnalignedで非整列アクセス安全に読み取る (offset 2,10,18は8byte非整列)
+            let ts = buf.loadUnaligned(fromByteOffset: 2, as: UInt64.self)
+            let bx = buf.loadUnaligned(fromByteOffset: 10, as: UInt64.self)
+            let by = buf.loadUnaligned(fromByteOffset: 18, as: UInt64.self)
             return CursorPacket(
                 timestamp: Double(bitPattern: UInt64(littleEndian: ts)),
                 x: Double(bitPattern: UInt64(littleEndian: bx)),
