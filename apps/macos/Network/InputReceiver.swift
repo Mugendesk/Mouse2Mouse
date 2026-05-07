@@ -13,7 +13,24 @@ class InputReceiver {
     private var scrollResidualX: Double = 0
     private var scrollResidualY: Double = 0
 
-    private init() {}
+    // AXIsProcessTrusted()キャッシュ（毎フレーム呼ぶと遅いため5秒間隔で更新）
+    private var cachedTrusted: Bool = false
+    private var cachedTrustedAt: CFAbsoluteTime = 0
+    private let trustedCacheTTL: CFAbsoluteTime = 5.0
+
+    private init() {
+        cachedTrusted = AXIsProcessTrusted()
+        cachedTrustedAt = CFAbsoluteTimeGetCurrent()
+    }
+
+    private func isAccessibilityTrusted() -> Bool {
+        let now = CFAbsoluteTimeGetCurrent()
+        if now - cachedTrustedAt >= trustedCacheTTL {
+            cachedTrusted = AXIsProcessTrusted()
+            cachedTrustedAt = now
+        }
+        return cachedTrusted
+    }
 
     /// 外部からカーソル位置を設定（controlTransfer受信時に初期位置を同期）
     func setVirtualCursorPosition(_ position: CGPoint) {
@@ -54,9 +71,8 @@ class InputReceiver {
     }
 
     private func moveCursor(to point: CGPoint) {
-        // 権限チェック
-        let trusted = AXIsProcessTrusted()
-        if !trusted {
+        // 権限チェック（5秒キャッシュ）
+        if !isAccessibilityTrusted() {
             print("[InputReceiver] ERROR: Accessibility permission not granted!")
             return
         }

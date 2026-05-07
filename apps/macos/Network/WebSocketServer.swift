@@ -26,6 +26,10 @@ class WebSocketServer {
     func start(bonjourName: String? = nil, txtRecord: NWTXTRecord? = nil) {
         let parameters = NWParameters.tcp
         parameters.allowLocalEndpointReuse = true
+        // Nagleアルゴリズム無効化（小さいパケットの送信遅延を回避）
+        if let tcpOptions = parameters.defaultProtocolStack.transportProtocol as? NWProtocolTCP.Options {
+            tcpOptions.noDelay = true
+        }
 
         do {
             listener = try NWListener(using: parameters, on: NWEndpoint.Port(integerLiteral: port))
