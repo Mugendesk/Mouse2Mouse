@@ -35,10 +35,36 @@ class InputReceiver {
     // ダブり症状の原因）。前回post位置からのdeltaを必ず設定する。
     private var lastPostedPosition: CGPoint?
 
+    // ジッタバッファ + 補間レンダ。
+    // ネットワーク経由のUDPは到着間隔が不揃い（WiFiバッチ送信、CGEvent coalesce等）。
+    // 受信したサンプルを (timestamp, position) でバッファに溜め、240Hzタイマーで
+    // 「現在時刻 - bufferDelay」の位置を線形補間で計算してCGWarp。
+    // → ネットワークジッタを吸収して常に等間隔で滑らかに描画。
+    private struct CursorSample {
+        let timestamp: CFAbsoluteTime
+        let position: CGPoint
+    }
+    private var sampleBuffer: [CursorSample] = []
+    private let sampleBufferLock = NSLock()
+    private let bufferDelay: CFAbsoluteTime = 0.008  // 8ms。1フレーム以下で人間にはほぼ気付けない
+    private let renderInterval: CFAbsoluteTime = 1.0 / 240.0
+    private let staleThreshold: CFAbsoluteTime = 0.05  // 50ms以上新サンプルが来なければ補間停止
+    private var renderTimer: DispatchSourceTimer?
 
     private init() {
         cachedTrusted = AXIsProcessTrusted()
         cachedTrustedAt = CFAbsoluteTimeGetCurrent()
+        startRenderTimer()
+    }
+
+    private func startRenderTimer() {
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(deadline: .now() + renderInterval, repeating: renderInterval, leeway: .milliseconds(1))
+        timer.setEventHandler { [weak self] in
+            self?.renderTick()
+        }
+        timer.resume()
+        renderTimer = timer
     }
 
     private func isAccessibilityTrusted() -> Bool {
@@ -53,6 +79,11 @@ class InputReceiver {
     /// 外部からカーソル位置を設定（controlTransfer受信時に初期位置を同期）
     func setVirtualCursorPosition(_ position: CGPoint) {
         virtualCursorPosition = position
+        // バッファクリア: 旧サンプルから補間しない（突然の位置ジャンプ時用）
+        sampleBufferLock.lock()
+        sampleBuffer.removeAll(keepingCapacity: true)
+        sampleBuffer.append(CursorSample(timestamp: CFAbsoluteTimeGetCurrent(), position: position))
+        sampleBufferLock.unlock()
     }
 
     // MARK: - Role Check
@@ -74,8 +105,70 @@ class InputReceiver {
         let actualX = union.minX + CGFloat(x) * union.width
         let actualY = union.minY + CGFloat(y) * union.height
         let newPos = CGPoint(x: actualX, y: actualY)
-        virtualCursorPosition = newPos
-        moveCursor(to: newPos)
+
+        // バッファに追加（描画は240Hzタイマーが補間して行う）
+        let now = CFAbsoluteTimeGetCurrent()
+        sampleBufferLock.lock()
+        sampleBuffer.append(CursorSample(timestamp: now, position: newPos))
+        // 古いサンプル削除（直近200msのみ保持）
+        let cutoff = now - 0.2
+        while let first = sampleBuffer.first, first.timestamp < cutoff {
+            sampleBuffer.removeFirst()
+        }
+        sampleBufferLock.unlock()
+    }
+
+    // MARK: - Render Tick (240Hz interpolation)
+
+    private func renderTick() {
+        let renderTime = CFAbsoluteTimeGetCurrent() - bufferDelay
+
+        sampleBufferLock.lock()
+        let pos = interpolatePosition(at: renderTime)
+        sampleBufferLock.unlock()
+
+        guard let pos = pos else { return }
+        // 同じ位置への再warpはスキップ（軽微な負荷削減 + delta=0回避）
+        if let last = lastPostedPosition,
+           abs(last.x - pos.x) < 0.5 && abs(last.y - pos.y) < 0.5 {
+            return
+        }
+        virtualCursorPosition = pos
+        moveCursor(to: pos)
+    }
+
+    /// バッファ内のサンプル群から指定時刻の位置を線形補間で算出。
+    /// 呼び出し側で sampleBufferLock を保持している前提。
+    private func interpolatePosition(at time: CFAbsoluteTime) -> CGPoint? {
+        guard !sampleBuffer.isEmpty else { return nil }
+
+        // 最新サンプルが古すぎる（マウス停止中）→ 最終位置を保持
+        if let last = sampleBuffer.last, time > last.timestamp + staleThreshold {
+            return last.position
+        }
+
+        // 最古サンプルより前の時刻 → 最古位置
+        if let first = sampleBuffer.first, time <= first.timestamp {
+            return first.position
+        }
+
+        // straddling pair を検索して線形補間
+        for i in 0..<(sampleBuffer.count - 1) {
+            let a = sampleBuffer[i]
+            let b = sampleBuffer[i + 1]
+            if a.timestamp <= time && time <= b.timestamp {
+                let span = b.timestamp - a.timestamp
+                guard span > 0 else { return b.position }
+                let t = CGFloat((time - a.timestamp) / span)
+                return CGPoint(
+                    x: a.position.x + (b.position.x - a.position.x) * t,
+                    y: a.position.y + (b.position.y - a.position.y) * t
+                )
+            }
+        }
+
+        // 最新サンプルより後（staleThreshold以内）→ 短時間外挿
+        return sampleBuffer.last?.position
     }
 
     private func moveCursor(to point: CGPoint) {
