@@ -46,7 +46,7 @@ class InputReceiver {
     }
     private var sampleBuffer: [CursorSample] = []
     private let sampleBufferLock = NSLock()
-    private let bufferDelay: CFAbsoluteTime = 0.008  // 8ms。1フレーム以下で人間にはほぼ気付けない
+    private let bufferDelay: CFAbsoluteTime = 0.016  // 16ms。WiFiジッタ典型値(5-15ms)を吸収
     private let renderInterval: CFAbsoluteTime = 1.0 / 240.0
     private let staleThreshold: CFAbsoluteTime = 0.05  // 50ms以上新サンプルが来なければ補間停止
     private var renderTimer: DispatchSourceTimer?
