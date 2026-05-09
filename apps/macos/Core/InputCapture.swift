@@ -170,8 +170,11 @@ class InputCapture: ObservableObject {
         // CGDisplayHideCursorは「呼び出しアプリがactiveでないと実質hideしない」仕様の罠あり。
         // menubarアプリ(.accessory)は普通active扱いされず、行き来後に解除される。
         // 自分をactiveにしてからhide+disassociateを行い、確実に効かせる。
+        // ただしactivateは開いてる他ウィンドウ（画面配置等）を前面に持ち上げる副作用があるので即引っ込める。
         DispatchQueue.main.async {
             NSApp.activate(ignoringOtherApps: true)
+            ScreenLayoutWindowController.shared?.orderOut(nil)
+            TrustedDevicesWindowController.shared?.orderOut(nil)
         }
 
         // タップ再生成"前"にカーソルを切り離す（タップ再生成で関連付けが
