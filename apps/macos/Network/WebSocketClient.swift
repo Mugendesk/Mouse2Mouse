@@ -15,6 +15,12 @@ class WebSocketClient {
     let serverURL: URL
     private let connectionTimeout: TimeInterval = 10.0
 
+    // JSON-levelでのkeepalive（URLSessionWebSocketTask.sendPingはカスタムサーバー
+    // とのpong照合に問題がありタイムアウト誤検知するため、自前でping/pongを扱う）
+    private var lastPongAt: CFAbsoluteTime = 0
+    private let pingInterval: TimeInterval = 10.0
+    private let pongTimeout: CFAbsoluteTime = 30.0
+
     // Callbacks
     var onConnected: (() -> Void)?
     var onDisconnected: ((Error?) -> Void)?
@@ -132,10 +138,11 @@ class WebSocketClient {
         }
     }
 
-    // MARK: - Ping/Pong
+    // MARK: - Ping/Pong (JSON-level keepalive)
 
     private func startPing() {
-        pingTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
+        lastPongAt = CFAbsoluteTimeGetCurrent()
+        pingTimer = Timer.scheduledTimer(withTimeInterval: pingInterval, repeats: true) { [weak self] _ in
             self?.ping()
         }
     }
@@ -145,18 +152,24 @@ class WebSocketClient {
         pingTimer = nil
     }
 
-    private func ping() {
-        let pingTimeout = DispatchWorkItem { [weak self] in
-            guard let self = self, self.isConnected else { return }
-            print("Ping timeout, disconnecting")
-            self.disconnect()
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 10, execute: pingTimeout)
+    /// 受信側で `.pong` メッセージを受け取った時に呼ぶ
+    func notePong() {
+        lastPongAt = CFAbsoluteTimeGetCurrent()
+    }
 
-        webSocketTask?.sendPing { [weak self] error in
-            pingTimeout.cancel()
+    private func ping() {
+        let now = CFAbsoluteTimeGetCurrent()
+        if now - lastPongAt > pongTimeout {
+            print("[WS] No pong for \(String(format: "%.1f", now - lastPongAt))s — disconnecting")
+            disconnect()
+            return
+        }
+
+        // JSON ping。serverは DiscoveryService case .ping → JSON pong返却
+        let json = "{\"type\":\"ping\",\"timestamp\":\(Date().timeIntervalSince1970)}"
+        webSocketTask?.send(.string(json)) { [weak self] error in
             if let error = error {
-                print("Ping failed: \(error)")
+                print("[WS] Ping send failed: \(error)")
                 DispatchQueue.main.async {
                     self?.isConnected = false
                     self?.onDisconnected?(error)
@@ -378,7 +391,8 @@ class ConnectionManager: ObservableObject {
             return
 
         case .pong:
-            // peerMessageReceivedで既にウォッチドッグはリセット済み
+            // WebSocketClient側のkeepaliveタイマーをリセット（接続生存確認）
+            activeConnections[peerId]?.notePong()
             return
 
         case .cursorMove:
