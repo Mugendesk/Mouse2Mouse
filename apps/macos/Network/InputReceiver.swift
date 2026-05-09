@@ -137,7 +137,8 @@ class InputReceiver {
         moveCursor(to: pos)
     }
 
-    /// バッファ内のサンプル群から指定時刻の位置を線形補間で算出。
+    /// バッファ内のサンプル群から指定時刻の位置を Catmull-Rom スプラインで算出。
+    /// 線形補間より方向転換時の角ばりが消えて滑らかなカーブになる。
     /// 呼び出し側で sampleBufferLock を保持している前提。
     private func interpolatePosition(at time: CFAbsoluteTime) -> CGPoint? {
         guard !sampleBuffer.isEmpty else { return nil }
@@ -152,23 +153,45 @@ class InputReceiver {
             return first.position
         }
 
-        // straddling pair を検索して線形補間
+        // straddling segment [i, i+1] を検索
         for i in 0..<(sampleBuffer.count - 1) {
-            let a = sampleBuffer[i]
-            let b = sampleBuffer[i + 1]
-            if a.timestamp <= time && time <= b.timestamp {
-                let span = b.timestamp - a.timestamp
-                guard span > 0 else { return b.position }
-                let t = CGFloat((time - a.timestamp) / span)
-                return CGPoint(
-                    x: a.position.x + (b.position.x - a.position.x) * t,
-                    y: a.position.y + (b.position.y - a.position.y) * t
-                )
-            }
+            let p1 = sampleBuffer[i]
+            let p2 = sampleBuffer[i + 1]
+            guard p1.timestamp <= time && time <= p2.timestamp else { continue }
+
+            let span = p2.timestamp - p1.timestamp
+            guard span > 0 else { return p2.position }
+            let t = CGFloat((time - p1.timestamp) / span)
+
+            // 端点の隣接サンプルが取れない場合は端点で代用（Catmull-Rom端点条件）
+            let p0 = (i > 0) ? sampleBuffer[i - 1].position : p1.position
+            let p3 = (i + 2 < sampleBuffer.count) ? sampleBuffer[i + 2].position : p2.position
+
+            return catmullRom(p0: p0, p1: p1.position, p2: p2.position, p3: p3, t: t)
         }
 
-        // 最新サンプルより後（staleThreshold以内）→ 短時間外挿
+        // 最新サンプルより後（staleThreshold以内）→ 最終位置で保持
         return sampleBuffer.last?.position
+    }
+
+    /// Uniform Catmull-Rom スプライン補間。t ∈ [0, 1] で p1 → p2 のカーブを返す。
+    private func catmullRom(p0: CGPoint, p1: CGPoint, p2: CGPoint, p3: CGPoint, t: CGFloat) -> CGPoint {
+        let t2 = t * t
+        let t3 = t2 * t
+        // P(t) = 0.5 * ((2*P1) + (-P0+P2)*t + (2*P0-5*P1+4*P2-P3)*t² + (-P0+3*P1-3*P2+P3)*t³)
+        let x = 0.5 * (
+            (2.0 * p1.x) +
+            (-p0.x + p2.x) * t +
+            (2.0 * p0.x - 5.0 * p1.x + 4.0 * p2.x - p3.x) * t2 +
+            (-p0.x + 3.0 * p1.x - 3.0 * p2.x + p3.x) * t3
+        )
+        let y = 0.5 * (
+            (2.0 * p1.y) +
+            (-p0.y + p2.y) * t +
+            (2.0 * p0.y - 5.0 * p1.y + 4.0 * p2.y - p3.y) * t2 +
+            (-p0.y + 3.0 * p1.y - 3.0 * p2.y + p3.y) * t3
+        )
+        return CGPoint(x: x, y: y)
     }
 
     private func moveCursor(to point: CGPoint) {
