@@ -25,14 +25,9 @@ class InputReceiver {
 
     // CGWarp / mouseMoved postの絞り込み（Launchpad/Dock/MC等の高負荷UIが
     // 高頻度のhover更新で崩壊するのを防ぐ）。
-    // ローカルHWマウスは~125Hzで動くため、それに揃えれば挙動が自然になる。
-    // - Warp 120Hz（カーソル位置の追従）
-    // - mouseMoved post 60Hz（hover効果・Launchpad highlight等の通知）
-    // ドラッグ中は全レート維持（描画/選択精度のため）。
-    private var lastWarpTime: CFAbsoluteTime = 0
-    private let warpInterval: CFAbsoluteTime = 1.0 / 120.0
-    private var pendingWarpPosition: CGPoint?
-    private var warpFlushScheduled = false
+    // CGWarpはWindowServer直接で副作用なしなのでnetwork rate full。
+    // mouseMoved postは60Hzに絞る（Launchpad/MC等のhover効果が高頻度で暴走するため）。
+    // ドラッグ中はpostも全レート（描画/選択精度のため）。
     private var lastMoveEventPostTime: CFAbsoluteTime = 0
     private let mouseMovedPostInterval: CFAbsoluteTime = 1.0 / 60.0
     // Launchpad/MC等はmouseEventDeltaX/Yで「動いた」を判定するため、
@@ -90,36 +85,10 @@ class InputReceiver {
             return
         }
 
-        let isDragging = leftButtonDown || rightButtonDown || otherButtonDown
-
-        // ドラッグ中はWarp/post全レートで実行（描画・選択精度のため）。
-        // hover中はWarpを120Hzに絞ってLaunchpad等の高負荷UIの暴走を防ぐ。
-        if isDragging {
-            CGWarpMouseCursorPosition(point)
-        } else {
-            // hover時: 120Hz throttleでwarp。trailing-edge flushで最終位置は確実に到達
-            let now = CFAbsoluteTimeGetCurrent()
-            if now - lastWarpTime >= warpInterval {
-                lastWarpTime = now
-                CGWarpMouseCursorPosition(point)
-                pendingWarpPosition = nil
-            } else {
-                pendingWarpPosition = point
-                if !warpFlushScheduled {
-                    warpFlushScheduled = true
-                    let delay = warpInterval - (now - lastWarpTime)
-                    DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-                        guard let self = self else { return }
-                        self.warpFlushScheduled = false
-                        if let pending = self.pendingWarpPosition {
-                            self.pendingWarpPosition = nil
-                            self.lastWarpTime = CFAbsoluteTimeGetCurrent()
-                            CGWarpMouseCursorPosition(pending)
-                        }
-                    }
-                }
-            }
-        }
+        // CGWarpMouseCursorPositionはWindowServer直接でイベント発火しない（位置更新のみ）。
+        // Launchpad/MC等の暴走原因はmouseMovedイベントのpost頻度なので、Warpは間引かず
+        // network rate full で位置を反映 → カーソルが滑らかに見える。
+        CGWarpMouseCursorPosition(point)
 
         // イベントタイプ決定
         let (eventType, button): (CGEventType, CGMouseButton)
