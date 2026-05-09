@@ -39,6 +39,9 @@ class WebSocketClient {
 
         session = URLSession(configuration: config)
         webSocketTask = session?.webSocketTask(with: serverURL)
+        // デフォルトは1MBで、クリップボード画像 (base64で~1.4倍) で簡単に超えて切断する。
+        // サーバー側の maxFrameSize と揃えて 16MB に拡張。
+        webSocketTask?.maximumMessageSize = 16 * 1024 * 1024
 
         print("WebSocket connecting to \(serverURL)")
 
