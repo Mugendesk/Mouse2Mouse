@@ -71,6 +71,9 @@ final class UDPCursorChannel {
     // 3でWiFi 1%損失でも実効損失~0.0001%。LANでは帯域無視できる
     private let redundancy: Int = 3
 
+    // ジッタ計測（受信側: 到着間隔）
+    private let recvStats = IntervalStats(name: "Cursor←recv")
+
     private init() {}
 
     // MARK: - Lifecycle
@@ -133,6 +136,7 @@ final class UDPCursorChannel {
         // WS接続中のピアが居なければドロップ（WS切断後のゾンビ動作と同一LANスプーフィング両方を遮断）
         guard !DiscoveryService.shared.connectedPeers.isEmpty else { return }
         lastReceivedTimestamp = pkt.timestamp
+        recvStats.tick()
         InputCapture.shared.peerMessageReceived()
         InputReceiver.shared.handleCursorMove(x: pkt.x, y: pkt.y)
     }
@@ -170,5 +174,56 @@ final class UDPCursorChannel {
         for _ in 0..<redundancy {
             conn.send(content: data, completion: .idempotent)
         }
+    }
+}
+
+// MARK: - Interval Statistics (ジッタ計測用)
+
+/// イベント間隔をp50/p95/p99/maxで定期ログ出力する診断ヘルパー。
+/// tick() が呼ばれるたびに前回からの経過を記録し、reportInterval毎にprint。
+final class IntervalStats {
+    private let name: String
+    private let lock = NSLock()
+    private var lastTimestamp: CFAbsoluteTime = 0
+    private var intervals: [Double] = []
+    private var lastReport: CFAbsoluteTime = 0
+    private let reportInterval: Double = 5.0
+    private let minSamplesToReport = 20
+
+    init(name: String) {
+        self.name = name
+    }
+
+    func tick() {
+        let now = CFAbsoluteTimeGetCurrent()
+        lock.lock()
+        if lastTimestamp > 0 {
+            intervals.append(now - lastTimestamp)
+        }
+        lastTimestamp = now
+        let shouldReport = (now - lastReport > reportInterval) && (intervals.count >= minSamplesToReport)
+        let toReport = shouldReport ? intervals : []
+        if shouldReport {
+            intervals.removeAll(keepingCapacity: true)
+            lastReport = now
+        }
+        lock.unlock()
+        if !toReport.isEmpty {
+            report(toReport)
+        }
+    }
+
+    private func report(_ data: [Double]) {
+        let sorted = data.sorted()
+        let count = sorted.count
+        let total = data.reduce(0, +)
+        let rate = total > 0 ? Double(count) / total : 0
+        let p50 = sorted[count / 2] * 1000
+        let p95 = sorted[min(count - 1, Int(Double(count) * 0.95))] * 1000
+        let p99 = sorted[min(count - 1, Int(Double(count) * 0.99))] * 1000
+        let minMs = (sorted.first ?? 0) * 1000
+        let maxMs = (sorted.last ?? 0) * 1000
+        print(String(format: "[%@] n=%d rate=%dHz min=%.2fms p50=%.2fms p95=%.2fms p99=%.2fms max=%.2fms",
+                     name, count, Int(rate), minMs, p50, p95, p99, maxMs))
     }
 }
