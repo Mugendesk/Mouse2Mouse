@@ -200,10 +200,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             CGAssociateMouseAndMouseCursorPosition(1)
         }
 
-        // 起床時もカーソル関連付けを念のため復元
+        // 起床時: カーソル関連付け復元 + CGEventTap再構築（wake後のキーボード片肺対策）
         nc.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { _ in
-            print("[System] didWake - restoring cursor association")
+            print("[System] didWake - restoring cursor association and rebuilding event tap")
             CGAssociateMouseAndMouseCursorPosition(1)
+            // 少し待ってからtap再構築（wake直後はsystem側がまだ準備中の可能性）
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                InputCapture.shared.rebuildTapAfterWake()
+            }
         }
     }
 

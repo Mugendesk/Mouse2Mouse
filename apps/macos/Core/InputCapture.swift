@@ -219,6 +219,14 @@ class InputCapture: ObservableObject {
         }
     }
 
+    /// スリープ→起床後にタップを作り直す（CGEventTapがwake後にkeyboard capture片肺になる症状対策）
+    /// 現在のuseDefaultTap状態を維持して再作成する
+    func rebuildTapAfterWake() {
+        guard isCapturing else { return }
+        print("[InputCapture] Rebuilding tap after wake (defaultTap=\(useDefaultTap))")
+        restartCapturing(withDefaultTap: useDefaultTap)
+    }
+
     // MARK: - Watchdog (リモートモードの安全装置)
 
     private func startWatchdog() {
@@ -292,7 +300,6 @@ class InputCapture: ObservableObject {
             handleScroll(event: event)
 
         case .keyDown:
-            print("[Tap] keyDown received remoteMode=\(isRemoteMode) hasKeyboardCallback=\(onKeyEvent != nil)")
             // ホットキーチェック（共有トグル: Ctrl+Option+S）
             let hkKeycode = Int(event.getIntegerValueField(.keyboardEventKeycode))
             let hkModifiers = getModifiers(from: event.flags)

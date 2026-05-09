@@ -228,7 +228,6 @@ class InputReceiver {
     // MARK: - Keyboard
 
     func handleKeyEvent(keycode: Int, isDown: Bool, modifiers: [String]) {
-        print("[Key←] keycode=\(keycode) isDown=\(isDown) modifiers=\(modifiers) trusted=\(isAccessibilityTrusted())")
         let event = CGEvent(
             keyboardEventSource: nil,
             virtualKey: CGKeyCode(keycode),

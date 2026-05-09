@@ -130,6 +130,8 @@ final class UDPCursorChannel {
         guard let pkt = CursorPacket.decode(data) else { return }
         // timestamp比較で重複/古いパケットを破棄（triple-sendでも一度だけ処理）
         guard pkt.timestamp > lastReceivedTimestamp else { return }
+        // WS接続中のピアが居なければドロップ（WS切断後のゾンビ動作と同一LANスプーフィング両方を遮断）
+        guard !DiscoveryService.shared.connectedPeers.isEmpty else { return }
         lastReceivedTimestamp = pkt.timestamp
         InputCapture.shared.peerMessageReceived()
         InputReceiver.shared.handleCursorMove(x: pkt.x, y: pkt.y)
