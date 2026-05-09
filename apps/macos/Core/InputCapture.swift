@@ -312,7 +312,7 @@ class InputCapture: ObservableObject {
             }
             let kc = event.getIntegerValueField(.keyboardEventKeycode)
             if kc == 53 {  // Escape
-                // パニック脱出: 600ms以内に3回Esc連打 → 全状態を強制リセット（リモートモード外でも有効）
+                // パニック脱出: 600ms以内に3回Esc連打 → 全状態を強制リセット（最終手段として残す）
                 let now = CFAbsoluteTimeGetCurrent()
                 escPressTimestamps.append(now)
                 escPressTimestamps.removeAll { now - $0 > panicWindow }
@@ -322,14 +322,7 @@ class InputCapture: ObservableObject {
                     panicReset()
                     return nil
                 }
-                // 通常Escでもリモートモードから脱出
-                if isRemoteMode {
-                    print("Escape pressed, exiting remote mode")
-                    exitRemoteMode()
-                    ScreenManager.shared.returnControlToLocal()
-                    InputTransmitter.shared.stopTransmitting()
-                    return nil
-                }
+                // 単発Escはリモートに透過（Vim/MC等で必要）。脱出はCtrl+Opt+S または triple-Esc で。
             }
             handleKeyEvent(event: event, isDown: true)
         case .keyUp:
