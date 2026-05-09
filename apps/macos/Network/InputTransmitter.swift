@@ -20,9 +20,6 @@ class InputTransmitter {
     private var pendingCursorPosition: CGPoint?
     private var cursorFlushScheduled = false
 
-    // ジッタ計測（送信側: CGEvent取得→送信タイミング間隔）
-    private let sendStats = IntervalStats(name: "Cursor→send")
-
     var currentTargetPeerId: String? { targetPeerId }
 
     private init() {
@@ -121,7 +118,6 @@ class InputTransmitter {
         let normalizedX = Double((position.x - peerUnion.minX) / peerUnion.width)
         let normalizedY = Double((position.y - peerUnion.minY) / peerUnion.height)
 
-        sendStats.tick()
         // バイナリ26byteでUDP送信（JSON parseを完全に回避、ペイロード1/3）
         UDPCursorChannel.shared.sendCursor(x: normalizedX, y: normalizedY, to: peerId)
     }

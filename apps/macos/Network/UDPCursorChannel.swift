@@ -71,8 +71,12 @@ final class UDPCursorChannel {
     // 3でWiFi 1%損失でも実効損失~0.0001%。LANでは帯域無視できる
     private let redundancy: Int = 3
 
-    // ジッタ計測（受信側: 到着間隔）
-    private let recvStats = IntervalStats(name: "Cursor←recv")
+    // ジッタ計測（受信側に集約）:
+    // - sendJitter: パケット内timestamp間隔 = ホストでの送信間隔（送信側ジッタ）
+    // - recvJitter: 実際の到着時刻間隔 = ネットワーク経由後の受信ジッタ
+    // 両者を比較すればネットワーク区間のジッタが分かる
+    private let sendJitter = IntervalStats(name: "Cursor send")
+    private let recvJitter = IntervalStats(name: "Cursor recv")
 
     private init() {}
 
@@ -136,7 +140,8 @@ final class UDPCursorChannel {
         // WS接続中のピアが居なければドロップ（WS切断後のゾンビ動作と同一LANスプーフィング両方を遮断）
         guard !DiscoveryService.shared.connectedPeers.isEmpty else { return }
         lastReceivedTimestamp = pkt.timestamp
-        recvStats.tick()
+        sendJitter.tick(at: pkt.timestamp)
+        recvJitter.tick()
         InputCapture.shared.peerMessageReceived()
         InputReceiver.shared.handleCursorMove(x: pkt.x, y: pkt.y)
     }
@@ -195,17 +200,22 @@ final class IntervalStats {
     }
 
     func tick() {
-        let now = CFAbsoluteTimeGetCurrent()
+        tick(at: CFAbsoluteTimeGetCurrent())
+    }
+
+    /// 任意のtimestampでtick（パケット内タイムスタンプから送信側jitterを計算する用途）
+    func tick(at timestamp: CFAbsoluteTime) {
+        let nowReal = CFAbsoluteTimeGetCurrent()
         lock.lock()
         if lastTimestamp > 0 {
-            intervals.append(now - lastTimestamp)
+            intervals.append(timestamp - lastTimestamp)
         }
-        lastTimestamp = now
-        let shouldReport = (now - lastReport > reportInterval) && (intervals.count >= minSamplesToReport)
+        lastTimestamp = timestamp
+        let shouldReport = (nowReal - lastReport > reportInterval) && (intervals.count >= minSamplesToReport)
         let toReport = shouldReport ? intervals : []
         if shouldReport {
             intervals.removeAll(keepingCapacity: true)
-            lastReport = now
+            lastReport = nowReal
         }
         lock.unlock()
         if !toReport.isEmpty {
