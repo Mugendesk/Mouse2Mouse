@@ -68,13 +68,31 @@ class WebSocketServer {
     }
 
     func stop() {
-        listener?.cancel()
-        listener = nil
+        stop(completion: nil)
+    }
 
+    /// completionは listener の .cancelled state 観測後に呼ばれる。
+    /// port再bind前に呼ぶと EADDRINUSE になるので、再起動時は必ず completion を待つ。
+    func stop(completion: (() -> Void)?) {
         connections.values.forEach { $0.close() }
         connections.removeAll()
 
-        print("WebSocket server stopped")
+        let toCancel = listener
+        listener = nil
+
+        guard let toCancel = toCancel else {
+            completion?()
+            print("WebSocket server stopped (no listener)")
+            return
+        }
+
+        toCancel.stateUpdateHandler = { state in
+            if case .cancelled = state {
+                print("WebSocket server stopped (cancelled)")
+                completion?()
+            }
+        }
+        toCancel.cancel()
     }
 
     // MARK: - Connection Handling

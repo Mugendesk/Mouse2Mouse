@@ -109,10 +109,30 @@ final class UDPCursorChannel {
     }
 
     func stop() {
-        listener?.cancel()
-        listener = nil
+        stop(completion: nil)
+    }
+
+    /// completionは listener の .cancelled state 観測後に呼ばれる。
+    /// port再bind前に呼ぶと EADDRINUSE になるので、再起動時は必ず completion を待つ。
+    func stop(completion: (() -> Void)?) {
         for c in sendConnections.values { c.cancel() }
         sendConnections.removeAll()
+
+        let toCancel = listener
+        listener = nil
+
+        guard let toCancel = toCancel else {
+            completion?()
+            return
+        }
+
+        toCancel.stateUpdateHandler = { state in
+            if case .cancelled = state {
+                print("[UDP] Listener cancelled")
+                completion?()
+            }
+        }
+        toCancel.cancel()
     }
 
     // MARK: - Receive Path

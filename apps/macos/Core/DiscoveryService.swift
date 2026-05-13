@@ -170,11 +170,11 @@ class DiscoveryService: ObservableObject {
 
     /// スリープ復帰用のソフトリスタート。
     /// stop()と違い ScreenManager.remoteScreens（保存レイアウト）は触らない。
-    /// 半開放TCP(WebSocket)を即座に切って、Bonjour browser/serverとUDPを作り直す。
+    /// listenerのcancel完了(.cancelled state)を待ってからbindし直すことで
+    /// EADDRINUSE(Address already in use)を回避する。
     func restartAfterWake() {
         print("[Discovery] restartAfterWake — tearing down stale sockets")
 
-        // 死んだ接続を即切る（30秒のpongタイムアウトを待たない）
         ConnectionManager.shared.disconnectAll()
         connectedPeers.removeAll()
         serverClientMapping.removeAll()
@@ -182,13 +182,24 @@ class DiscoveryService: ObservableObject {
 
         browser?.cancel()
         browser = nil
-        webSocketServer?.stop()
-        webSocketServer = nil
-        UDPCursorChannel.shared.stop()
 
-        // NWスタックがwake直後だと不安定なので少し待つ
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
+        let oldServer = webSocketServer
+        webSocketServer = nil
+
+        // WebSocket listener と UDP listener の両方 cancel 完了を待つ
+        let group = DispatchGroup()
+        group.enter()
+        if let oldServer = oldServer {
+            oldServer.stop { group.leave() }
+        } else {
+            group.leave()
+        }
+        group.enter()
+        UDPCursorChannel.shared.stop { group.leave() }
+
+        group.notify(queue: .main) { [weak self] in
             guard let self = self else { return }
+            print("[Discovery] All listeners cancelled — rebinding")
             self.setupLocalDeviceInfo()
             self.startBrowser()
             self.startWebSocketServer()
