@@ -280,8 +280,13 @@ class ScreenManager: ObservableObject {
             remoteScreens[index].offsetX = offsetX
             remoteScreens[index].offsetY = offsetY
 
-            // 相手に画面配置を通知
-            notifyScreenLayout(to: deviceId, edge: edge, offsetX: offsetX, offsetY: offsetY)
+            // 相手に画面配置を通知（screen.id は "peerId:displayId" なので peerId を渡す）
+            notifyScreenLayout(
+                to: remoteScreens[index].peerId,
+                edge: edge,
+                offsetX: offsetX,
+                offsetY: offsetY
+            )
         } else {
             print("[ScreenManager] Remote screen not found for deviceId: \(deviceId)")
             print("[ScreenManager] Available remoteScreens: \(remoteScreens.map { $0.id })")
