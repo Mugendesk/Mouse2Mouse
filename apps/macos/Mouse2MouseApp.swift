@@ -182,13 +182,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func installSystemEventHandlers() {
         let nc = NSWorkspace.shared.notificationCenter
 
-        // スリープ前にリモートモード解除（カーソルロック持ち越し防止）
+        // スリープ前にリモートモード解除 + WebSocket全切断
+        // (半開放TCP接続を残すと復帰後に30秒近く「死んだ接続」を使い続けるため)
         nc.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { _ in
-            print("[System] willSleep - exiting remote mode")
+            print("[System] willSleep - exiting remote mode and disconnecting all peers")
             InputCapture.shared.exitRemoteMode()
             InputTransmitter.shared.stopTransmitting()
             ScreenManager.shared.returnControlToLocal()
             CGAssociateMouseAndMouseCursorPosition(1)
+            ConnectionManager.shared.disconnectAll()
         }
 
         // 画面ロック前にもリモートモード解除
@@ -200,13 +202,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             CGAssociateMouseAndMouseCursorPosition(1)
         }
 
-        // 起床時: カーソル関連付け復元 + CGEventTap再構築（wake後のキーボード片肺対策）
+        // 起床時: カーソル関連付け復元 + tap再構築 + Discovery再起動
+        // (Bonjour browser/serverもwakeで止まるので作り直す)
         nc.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { _ in
-            print("[System] didWake - restoring cursor association and rebuilding event tap")
+            print("[System] didWake - restoring services")
             CGAssociateMouseAndMouseCursorPosition(1)
-            // 少し待ってからtap再構築（wake直後はsystem側がまだ準備中の可能性）
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 InputCapture.shared.rebuildTapAfterWake()
+                DiscoveryService.shared.restartAfterWake()
             }
         }
     }

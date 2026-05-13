@@ -271,6 +271,13 @@ struct MenuBarView: View {
             }
             .buttonStyle(.bordered)
 
+            Button(action: resetConnections) {
+                Label("接続をリセット", systemImage: "arrow.triangle.2.circlepath")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .help("接続が応答しない時に押す（mDNS再ブラウズ）")
+
             HStack(spacing: 8) {
                 Button(action: toggleService) {
                     Label(
@@ -352,6 +359,17 @@ struct MenuBarView: View {
 
     private func openPreferences() {
         // 設定ウィンドウを開く
+    }
+
+    /// 接続をリセット（半開放WebSocket切断 + mDNS再ブラウズ）。
+    /// スリープ復帰後に応答しなくなった場合の脱出ボタン。
+    private func resetConnections() {
+        print("[MenuBar] User pressed reset — restarting discovery")
+        CGAssociateMouseAndMouseCursorPosition(1)
+        InputTransmitter.shared.stopTransmitting()
+        InputCapture.shared.exitRemoteMode()
+        screenManager.returnControlToLocal()
+        discoveryService.restartAfterWake()
     }
 
     /// 画面配置を独立NSWindowで開く（popover内シートだとフッターが切れて閉じれないため）

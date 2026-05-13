@@ -168,6 +168,35 @@ class DiscoveryService: ObservableObject {
         print("DiscoveryService stopped")
     }
 
+    /// スリープ復帰用のソフトリスタート。
+    /// stop()と違い ScreenManager.remoteScreens（保存レイアウト）は触らない。
+    /// 半開放TCP(WebSocket)を即座に切って、Bonjour browser/serverとUDPを作り直す。
+    func restartAfterWake() {
+        print("[Discovery] restartAfterWake — tearing down stale sockets")
+
+        // 死んだ接続を即切る（30秒のpongタイムアウトを待たない）
+        ConnectionManager.shared.disconnectAll()
+        connectedPeers.removeAll()
+        serverClientMapping.removeAll()
+        messageRates.removeAll()
+
+        browser?.cancel()
+        browser = nil
+        webSocketServer?.stop()
+        webSocketServer = nil
+        UDPCursorChannel.shared.stop()
+
+        // NWスタックがwake直後だと不安定なので少し待つ
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
+            guard let self = self else { return }
+            self.setupLocalDeviceInfo()
+            self.startBrowser()
+            self.startWebSocketServer()
+            UDPCursorChannel.shared.start()
+            print("[Discovery] restartAfterWake complete")
+        }
+    }
+
     // MARK: - Browser (Peer Discovery)
 
     private func startBrowser() {
