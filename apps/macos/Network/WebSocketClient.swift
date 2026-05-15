@@ -95,9 +95,16 @@ class WebSocketClient {
         guard isConnected else { return }
 
         let wsMessage = URLSessionWebSocketTask.Message.string(message)
+        let startTime = CFAbsoluteTimeGetCurrent()
+        let byteCount = message.utf8.count
         webSocketTask?.send(wsMessage) { error in
             if let error = error {
                 print("WebSocket send error: \(error)")
+                return
+            }
+            let elapsed = CFAbsoluteTimeGetCurrent() - startTime
+            if elapsed > PerfLogger.slowSendThresholdSec {
+                print("[PerfLogger] 🐢 WebSocket send slow: \(String(format: "%.0f", elapsed * 1000))ms (\(byteCount)B)")
             }
         }
     }

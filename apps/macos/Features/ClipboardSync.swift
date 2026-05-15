@@ -82,41 +82,45 @@ class ClipboardSync: ObservableObject {
     // MARK: - Sending
 
     private func sendText(_ text: String) {
-        guard text.utf8.count <= maxTextSize else {
-            print("Text too large for clipboard sync: \(text.utf8.count) bytes")
-            return
-        }
-        let message = ClipboardMessage(format: .text, data: text)
+        PerfLogger.measure("ClipboardSync.sendText(\(text.utf8.count)B)") {
+            guard text.utf8.count <= maxTextSize else {
+                print("Text too large for clipboard sync: \(text.utf8.count) bytes")
+                return
+            }
+            let message = ClipboardMessage(format: .text, data: text)
 
-        if let json = MessageEncoder.shared.encode(message) {
-            DiscoveryService.shared.broadcastToAllPeers(json)
-            syncedItemType = .text
-            lastSyncTime = Date()
-            print("Clipboard text synced: \(text.prefix(50))...")
+            if let json = MessageEncoder.shared.encode(message) {
+                DiscoveryService.shared.broadcastToAllPeers(json)
+                syncedItemType = .text
+                lastSyncTime = Date()
+                print("Clipboard text synced: \(text.prefix(50))...")
+            }
         }
     }
 
     private func sendImage(_ image: NSImage) {
-        guard let tiffData = image.tiffRepresentation,
-              let bitmap = NSBitmapImageRep(data: tiffData),
-              let pngData = bitmap.representation(using: .png, properties: [:]) else {
-            return
-        }
+        PerfLogger.measure("ClipboardSync.sendImage") {
+            guard let tiffData = image.tiffRepresentation,
+                  let bitmap = NSBitmapImageRep(data: tiffData),
+                  let pngData = bitmap.representation(using: .png, properties: [:]) else {
+                return
+            }
 
-        // サイズチェック
-        guard pngData.count <= maxImageSize else {
-            print("Image too large for clipboard sync: \(pngData.count) bytes")
-            return
-        }
+            // サイズチェック
+            guard pngData.count <= maxImageSize else {
+                print("Image too large for clipboard sync: \(pngData.count) bytes")
+                return
+            }
 
-        let base64 = pngData.base64EncodedString()
-        let message = ClipboardMessage(format: .image, data: base64)
+            let base64 = pngData.base64EncodedString()
+            let message = ClipboardMessage(format: .image, data: base64)
 
-        if let json = MessageEncoder.shared.encode(message) {
-            DiscoveryService.shared.broadcastToAllPeers(json)
-            syncedItemType = .image
-            lastSyncTime = Date()
-            print("Clipboard image synced: \(pngData.count) bytes")
+            if let json = MessageEncoder.shared.encode(message) {
+                DiscoveryService.shared.broadcastToAllPeers(json)
+                syncedItemType = .image
+                lastSyncTime = Date()
+                print("Clipboard image synced: \(pngData.count) bytes")
+            }
         }
     }
 
@@ -137,33 +141,35 @@ class ClipboardSync: ObservableObject {
     func receiveClipboard(format: ClipboardFormat, data: String) {
         guard isEnabled else { return }
 
-        // 変更カウントを更新して自分の変更を無視
-        changeCount = pasteboard.changeCount + 1
+        PerfLogger.measure("ClipboardSync.receive(\(format.rawValue),\(data.utf8.count)B)") {
+            // 変更カウントを更新して自分の変更を無視
+            changeCount = pasteboard.changeCount + 1
 
-        switch format {
-        case .text:
-            pasteboard.clearContents()
-            pasteboard.setString(data, forType: .string)
-            print("Received clipboard text")
-
-        case .image:
-            if let imageData = Data(base64Encoded: data),
-               let image = NSImage(data: imageData) {
+            switch format {
+            case .text:
                 pasteboard.clearContents()
-                pasteboard.writeObjects([image])
-                print("Received clipboard image")
+                pasteboard.setString(data, forType: .string)
+                print("Received clipboard text")
+
+            case .image:
+                if let imageData = Data(base64Encoded: data),
+                   let image = NSImage(data: imageData) {
+                    pasteboard.clearContents()
+                    pasteboard.writeObjects([image])
+                    print("Received clipboard image")
+                }
+
+            case .fileReference:
+                // ファイル参照を受信した場合、ファイル転送をリクエスト
+                let paths = data.components(separatedBy: "\n")
+                print("Received file references, requesting transfer: \(paths)")
+                requestFileTransfer(paths: paths)
             }
 
-        case .fileReference:
-            // ファイル参照を受信した場合、ファイル転送をリクエスト
-            let paths = data.components(separatedBy: "\n")
-            print("Received file references, requesting transfer: \(paths)")
-            requestFileTransfer(paths: paths)
+            changeCount = pasteboard.changeCount
+            syncedItemType = format
+            lastSyncTime = Date()
         }
-
-        changeCount = pasteboard.changeCount
-        syncedItemType = format
-        lastSyncTime = Date()
     }
 
     private func requestFileTransfer(paths: [String]) {

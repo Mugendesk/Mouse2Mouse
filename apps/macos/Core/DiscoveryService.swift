@@ -235,6 +235,13 @@ class DiscoveryService: ObservableObject {
     }
 
     private func handleBrowseResults(_ results: Set<NWBrowser.Result>) {
+        PerfLogger.tick("mDNS.browseResults")
+        PerfLogger.measure("DiscoveryService.handleBrowseResults(\(results.count))") {
+            handleBrowseResultsImpl(results)
+        }
+    }
+
+    private func handleBrowseResultsImpl(_ results: Set<NWBrowser.Result>) {
         var peers: [Peer] = []
         let myDeviceId = localDeviceInfo?.deviceId
 

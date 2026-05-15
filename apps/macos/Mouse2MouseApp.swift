@@ -138,6 +138,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func startServices() {
+        // パフォーマンス計測（メインスレッドハング検知）開始
+        PerfLogger.startHangDetector()
+
         // mDNS発見サービス開始
         discoveryService.start()
 
