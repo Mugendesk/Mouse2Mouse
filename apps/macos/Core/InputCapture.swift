@@ -25,6 +25,12 @@ class InputCapture: ObservableObject {
 
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
+    /// CGEventTap専用のバックグラウンドスレッドとそのRunLoop。
+    /// メインスレッドのUI更新（@Published, AppKit描画など）と隔離することで
+    /// 他アプリ（matcha等）がWindowServerを酷使してもイベント取りこぼしを最小化する。
+    private var tapThread: Thread?
+    private var tapRunLoop: CFRunLoop?
+    private var tapKeepAliveSource: CFRunLoopSource?
     private var lastMousePosition: CGPoint = .zero
     private var virtualCursorPosition: CGPoint = .zero  // リモートモード用の仮想カーソル位置
     private var useDefaultTap = false  // true: イベント消費可能（リモートモード用）、false: listenOnly（安全）
@@ -60,6 +66,33 @@ class InputCapture: ObservableObject {
 
     /// キーボードイベントがキャプチャできているか（Input Monitoring権限依存）
     private(set) var hasKeyboardCapture = false
+
+    /// CGEventTap 専用スレッドを起動して RunLoop の参照を保持する。
+    /// 二度目以降の呼び出しは何もしない（idempotent）。
+    /// keep-alive source を1つ入れておかないと、source追加前にRunLoopが終了することがある。
+    private func ensureTapThread() {
+        guard tapThread == nil else { return }
+        let ready = DispatchSemaphore(value: 0)
+        let thread = Thread { [weak self] in
+            let rl = CFRunLoopGetCurrent()
+            // RunLoopが空回り→exit するのを防ぐためのダミーsource
+            var ctx = CFRunLoopSourceContext()
+            ctx.version = 0
+            let keepAlive = CFRunLoopSourceCreate(kCFAllocatorDefault, 0, &ctx)
+            if let keepAlive = keepAlive {
+                CFRunLoopAddSource(rl, keepAlive, .commonModes)
+                self?.tapKeepAliveSource = keepAlive
+            }
+            self?.tapRunLoop = rl
+            ready.signal()
+            CFRunLoopRun()
+        }
+        thread.qualityOfService = .userInteractive
+        thread.name = "M2M.InputCaptureTap"
+        thread.start()
+        ready.wait()
+        tapThread = thread
+    }
 
     func startCapturing() {
         guard !isCapturing else { return }
@@ -117,12 +150,13 @@ class InputCapture: ObservableObject {
         eventTap = tap
         runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
 
-        // 必ずメインスレッドの run loop に追加する。
-        // ScreenManager.init() 経由（AppDelegateのプロパティ初期化）から呼ばれた場合、
-        // 同じくメインスレッドだが NSApplication.run 開始前で run loop が走ってない。
-        // CFRunLoopGetMain() を明示指定すれば確実にメインに付く。
-        if let source = runLoopSource {
-            CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
+        // 専用バックグラウンドスレッドのRunLoopに付けることで、メインスレッドの
+        // UI更新（SwiftUI再描画、@Published通知、外部アプリ起因のWindowServer負荷）と
+        // イベント配信を切り離す。
+        ensureTapThread()
+        if let source = runLoopSource, let rl = tapRunLoop {
+            CFRunLoopAddSource(rl, source, .commonModes)
+            CFRunLoopWakeUp(rl)
         }
 
         CGEvent.tapEnable(tap: tap, enable: true)
@@ -144,8 +178,9 @@ class InputCapture: ObservableObject {
             CFMachPortInvalidate(tap)
         }
 
-        if let source = runLoopSource {
-            CFRunLoopRemoveSource(CFRunLoopGetCurrent(), source, .commonModes)
+        if let source = runLoopSource, let rl = tapRunLoop {
+            CFRunLoopRemoveSource(rl, source, .commonModes)
+            CFRunLoopWakeUp(rl)
         }
 
         eventTap = nil
@@ -270,6 +305,14 @@ class InputCapture: ObservableObject {
     // MARK: - Event Handling
 
     private func handleEvent(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
+        let handleStart = CFAbsoluteTimeGetCurrent()
+        defer {
+            let elapsed = CFAbsoluteTimeGetCurrent() - handleStart
+            if elapsed > PerfLogger.slowOperationThresholdSec {
+                print("[PerfLogger] ⏱ InputCapture.handleEvent(\(type.rawValue)): \(String(format: "%.1f", elapsed * 1000))ms")
+            }
+        }
+
         lastEventTimestamp = CFAbsoluteTimeGetCurrent()
 
         // タップが無効になった場合は再有効化
@@ -307,7 +350,10 @@ class InputCapture: ObservableObject {
             let hkKeycode = Int(event.getIntegerValueField(.keyboardEventKeycode))
             let hkModifiers = getModifiers(from: event.flags)
             if HotkeyManager.shared.checkHotkey(keycode: hkKeycode, modifiers: hkModifiers) {
-                HotkeyManager.shared.toggle()
+                // toggle() は @Published を変更する可能性があるためメインで実行
+                DispatchQueue.main.async {
+                    HotkeyManager.shared.toggle()
+                }
                 return nil
             }
             let kc = event.getIntegerValueField(.keyboardEventKeycode)
@@ -319,7 +365,10 @@ class InputCapture: ObservableObject {
                 if escPressTimestamps.count >= panicCount {
                     print("[Panic] Triple-Esc detected — emergency reset")
                     escPressTimestamps.removeAll()
-                    panicReset()
+                    // panicReset() は @Published を変更し UI 状態も触るためメインで実行
+                    DispatchQueue.main.async { [weak self] in
+                        self?.panicReset()
+                    }
                     return nil
                 }
                 // 単発Escはリモートに透過（Vim/MC等で必要）。脱出はCtrl+Opt+S または triple-Esc で。
@@ -518,12 +567,16 @@ class InputCapture: ObservableObject {
         return lastMousePosition
     }
 
-    /// 緊急時にローカルに戻る共通処理
+    /// 緊急時にローカルに戻る共通処理。
+    /// CGEventTapコールバック（バックグラウンドスレッド）から呼ばれることがあるため
+    /// @Published 更新と AppKit 操作はメインに切り替える。
     private func forceReturnToLocal() {
         edgeCooldownUntil = Date().addingTimeInterval(0.5)
-        exitRemoteMode()
-        ScreenManager.shared.returnControlToLocal()
-        InputTransmitter.shared.stopTransmitting()
+        DispatchQueue.main.async { [weak self] in
+            self?.exitRemoteMode()
+            ScreenManager.shared.returnControlToLocal()
+            InputTransmitter.shared.stopTransmitting()
+        }
     }
 
     /// パニック脱出: あらゆる状態を強制リセットしてカーソルを解放
