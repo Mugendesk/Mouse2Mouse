@@ -31,6 +31,7 @@
 		911779FC2F0A252400E040C6 /* HotkeyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 911779FB2F0A252400E040C6 /* HotkeyManager.swift */; };
 		91AA1B2C3D4E5F6010000001 /* UDPCursorChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91AA1B2C3D4E5F6010000002 /* UDPCursorChannel.swift */; };
 		91AA1B2C3D4E5F6010000003 /* KeychainStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91AA1B2C3D4E5F6010000004 /* KeychainStore.swift */; };
+		91AA20000000000000000001 /* SecurityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91AA20000000000000000002 /* SecurityTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -60,6 +61,8 @@
 		91AA1B2C3D4E5F6010000002 /* UDPCursorChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UDPCursorChannel.swift; sourceTree = "<group>"; };
 		91AA1B2C3D4E5F6010000004 /* KeychainStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainStore.swift; sourceTree = "<group>"; };
 		911779FD2F0A57D600E040C6 /* Mouse2Mouse.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Mouse2Mouse.entitlements; sourceTree = "<group>"; };
+		91AA20000000000000000002 /* SecurityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecurityTests.swift; sourceTree = "<group>"; };
+		91AA20000000000000000003 /* Mouse2MouseTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = Mouse2MouseTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -72,6 +75,13 @@
 
 /* Begin PBXFrameworksBuildPhase section */
 		911779BE2F0A212E00E040C6 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		91AA20000000000000000006 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -91,6 +101,7 @@
 				911779E12F0A252400E040C6 /* Network */,
 				911779E62F0A252400E040C6 /* UI */,
 				911779C32F0A212E00E040C6 /* Mouse2Mouse */,
+				91AA20000000000000000007 /* Mouse2MouseTests */,
 				911779C22F0A212E00E040C6 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -99,8 +110,17 @@
 			isa = PBXGroup;
 			children = (
 				911779C12F0A212E00E040C6 /* Mouse2Mouse.app */,
+				91AA20000000000000000003 /* Mouse2MouseTests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		91AA20000000000000000007 /* Mouse2MouseTests */ = {
+			isa = PBXGroup;
+			children = (
+				91AA20000000000000000002 /* SecurityTests.swift */,
+			);
+			path = Mouse2MouseTests;
 			sourceTree = "<group>";
 		};
 		911779D62F0A252400E040C6 /* Core */ = {
@@ -179,6 +199,23 @@
 			productReference = 911779C12F0A212E00E040C6 /* Mouse2Mouse.app */;
 			productType = "com.apple.product-type.application";
 		};
+		91AA20000000000000000004 /* Mouse2MouseTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 91AA20000000000000000008 /* Build configuration list for PBXNativeTarget "Mouse2MouseTests" */;
+			buildPhases = (
+				91AA20000000000000000005 /* Sources */,
+				91AA20000000000000000006 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				91AA2000000000000000000B /* PBXTargetDependency */,
+			);
+			name = Mouse2MouseTests;
+			productName = Mouse2MouseTests;
+			productReference = 91AA20000000000000000003 /* Mouse2MouseTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -191,6 +228,10 @@
 				TargetAttributes = {
 					911779C02F0A212E00E040C6 = {
 						CreatedOnToolsVersion = 26.1.1;
+					};
+					91AA20000000000000000004 = {
+						CreatedOnToolsVersion = 26.1.1;
+						TestTargetID = 911779C02F0A212E00E040C6;
 					};
 				};
 			};
@@ -209,6 +250,7 @@
 			projectRoot = "";
 			targets = (
 				911779C02F0A212E00E040C6 /* Mouse2Mouse */,
+				91AA20000000000000000004 /* Mouse2MouseTests */,
 			);
 		};
 /* End PBXProject section */
@@ -255,7 +297,33 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		91AA20000000000000000005 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				91AA20000000000000000001 /* SecurityTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		91AA2000000000000000000B /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 911779C02F0A212E00E040C6 /* Mouse2Mouse */;
+			targetProxy = 91AA2000000000000000000C /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin PBXContainerItemProxy section */
+		91AA2000000000000000000C /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 911779B92F0A212E00E040C6 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 911779C02F0A212E00E040C6;
+			remoteInfo = Mouse2Mouse;
+		};
+/* End PBXContainerItemProxy section */
 
 /* Begin XCBuildConfiguration section */
 		911779CA2F0A212F00E040C6 /* Debug */ = {
@@ -461,6 +529,46 @@
 			};
 			name = Release;
 		};
+		91AA20000000000000000009 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = DHU8C4N287;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 15.6;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = Mutafika.Mouse2MouseTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SUPPORTED_PLATFORMS = macosx;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Mouse2Mouse.app/Contents/MacOS/Mouse2Mouse";
+			};
+			name = Debug;
+		};
+		91AA2000000000000000000A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = DHU8C4N287;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 15.6;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = Mutafika.Mouse2MouseTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SUPPORTED_PLATFORMS = macosx;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Mouse2Mouse.app/Contents/MacOS/Mouse2Mouse";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -478,6 +586,15 @@
 			buildConfigurations = (
 				911779CD2F0A212F00E040C6 /* Debug */,
 				911779CE2F0A212F00E040C6 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		91AA20000000000000000008 /* Build configuration list for PBXNativeTarget "Mouse2MouseTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				91AA20000000000000000009 /* Debug */,
+				91AA2000000000000000000A /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
