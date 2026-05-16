@@ -60,7 +60,6 @@ class PairingManager: ObservableObject {
 
     // MARK: - Constants
 
-    private let keychainService = "com.mugendesk.mouse2mouse.pairing"
     private let pairedDevicesKey = "Mouse2Mouse.PairedDevices"
     private let codeValidityDuration: TimeInterval = 120  // 2分間有効
 
@@ -291,35 +290,11 @@ class PairingManager: ObservableObject {
 
     /// 自分の秘密鍵をKeychainに保存
     func savePrivateKey(_ key: Data) -> Bool {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: keychainService,
-            kSecAttrAccount as String: "privateKey",
-            kSecValueData as String: key
-        ]
-
-        // 既存のキーを削除
-        SecItemDelete(query as CFDictionary)
-
-        // 新しいキーを保存
-        let status = SecItemAdd(query as CFDictionary, nil)
-        return status == errSecSuccess
+        return KeychainItem.privateKey.save(key)
     }
 
     /// Keychainから秘密鍵を取得
     func loadPrivateKey() -> Data? {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: keychainService,
-            kSecAttrAccount as String: "privateKey",
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne
-        ]
-
-        var result: AnyObject?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
-
-        guard status == errSecSuccess else { return nil }
-        return result as? Data
+        return KeychainItem.privateKey.load()
     }
 }

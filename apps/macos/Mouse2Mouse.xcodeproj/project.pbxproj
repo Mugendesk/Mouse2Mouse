@@ -30,6 +30,7 @@
 		911779FA2F0A252400E040C6 /* InputTransmitter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 911779DD2F0A252400E040C6 /* InputTransmitter.swift */; };
 		911779FC2F0A252400E040C6 /* HotkeyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 911779FB2F0A252400E040C6 /* HotkeyManager.swift */; };
 		91AA1B2C3D4E5F6010000001 /* UDPCursorChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91AA1B2C3D4E5F6010000002 /* UDPCursorChannel.swift */; };
+		91AA1B2C3D4E5F6010000003 /* KeychainStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91AA1B2C3D4E5F6010000004 /* KeychainStore.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -57,6 +58,7 @@
 		911779E52F0A252400E040C6 /* ScreenLayoutView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenLayoutView.swift; sourceTree = "<group>"; };
 		911779FB2F0A252400E040C6 /* HotkeyManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotkeyManager.swift; sourceTree = "<group>"; };
 		91AA1B2C3D4E5F6010000002 /* UDPCursorChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UDPCursorChannel.swift; sourceTree = "<group>"; };
+		91AA1B2C3D4E5F6010000004 /* KeychainStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainStore.swift; sourceTree = "<group>"; };
 		911779FD2F0A57D600E040C6 /* Mouse2Mouse.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Mouse2Mouse.entitlements; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -109,6 +111,7 @@
 				911779D12F0A252400E040C6 /* DiscoveryService.swift */,
 				911779FB2F0A252400E040C6 /* HotkeyManager.swift */,
 				911779D22F0A252400E040C6 /* InputCapture.swift */,
+				91AA1B2C3D4E5F6010000004 /* KeychainStore.swift */,
 				911779D32F0A252400E040C6 /* PairingManager.swift */,
 				911779D42F0A252400E040C6 /* PermissionManager.swift */,
 				911779D52F0A252400E040C6 /* ScreenManager.swift */,
@@ -248,6 +251,7 @@
 				911779FC2F0A252400E040C6 /* HotkeyManager.swift in Sources */,
 				911779FE2F0A252400E040C6 /* PerfLogger.swift in Sources */,
 				91AA1B2C3D4E5F6010000001 /* UDPCursorChannel.swift in Sources */,
+				91AA1B2C3D4E5F6010000003 /* KeychainStore.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
