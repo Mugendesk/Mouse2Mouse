@@ -404,11 +404,45 @@ class DiscoveryService: ObservableObject {
                 return
             case .deviceInfo:
                 if let msg = MessageEncoder.shared.decode(DeviceInfoMessage.self, from: message) {
-                    // ペアリング承認ゲート：未ペアならユーザー確認を待つ
+                    let publicKeyData = msg.publicKey.flatMap { Data(base64Encoded: $0) } ?? Data()
+
+                    let rejectAndDisconnect: () -> Void = { [weak self] in
+                        guard let self = self else { return }
+                        let response = PairingResponseMessage(accepted: false)
+                        if let json = MessageEncoder.shared.encode(response) {
+                            self.webSocketServer?.send(json, to: clientId)
+                        }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                            self.webSocketServer?.disconnect(clientId: clientId)
+                        }
+                    }
+
+                    // ペアリング承認ゲート + TOFU鍵照合
                     if PairingManager.shared.isPaired(deviceId: msg.deviceId) {
-                        self.proceedDeviceInfo(msg, clientId: clientId)
+                        switch PairingManager.shared.checkKey(deviceId: msg.deviceId, incomingPublicKey: publicKeyData) {
+                        case .match:
+                            self.proceedDeviceInfo(msg, clientId: clientId)
+                        case .mismatch:
+                            let oldKey = PairingManager.shared.getPublicKey(for: msg.deviceId) ?? Data()
+                            print("[Pairing] WARNING: key change detected for \(msg.hostname) [\(msg.deviceId)]")
+                            PairingManager.shared.requestKeyChangeApproval(
+                                deviceId: msg.deviceId,
+                                hostname: msg.hostname,
+                                oldPublicKey: oldKey,
+                                newPublicKey: publicKeyData
+                            ) { [weak self] trusted in
+                                guard let self = self else { return }
+                                if trusted {
+                                    self.proceedDeviceInfo(msg, clientId: clientId)
+                                } else {
+                                    rejectAndDisconnect()
+                                }
+                            }
+                        case .unknown:
+                            // isPairedがtrueなのにunknownはあり得ないが防御的に
+                            rejectAndDisconnect()
+                        }
                     } else {
-                        let publicKeyData = msg.publicKey.flatMap { Data(base64Encoded: $0) } ?? Data()
                         print("[Pairing] Approval requested for \(msg.hostname) [\(msg.deviceId)]")
                         PairingManager.shared.requestApproval(
                             deviceId: msg.deviceId,
@@ -419,14 +453,7 @@ class DiscoveryService: ObservableObject {
                             if approved {
                                 self.proceedDeviceInfo(msg, clientId: clientId)
                             } else {
-                                let response = PairingResponseMessage(accepted: false)
-                                if let json = MessageEncoder.shared.encode(response) {
-                                    self.webSocketServer?.send(json, to: clientId)
-                                }
-                                // 拒否メッセージ送信を待ってから切断
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                                    self.webSocketServer?.disconnect(clientId: clientId)
-                                }
+                                rejectAndDisconnect()
                             }
                         }
                     }

@@ -13,6 +13,7 @@ class PairingManager: ObservableObject {
     @Published var pairedDevices: [PairedDevice] = []
     @Published var pendingPairingRequest: PairingRequest?
     @Published var pendingApproval: PendingApproval?
+    @Published var pendingKeyChangeWarning: KeyChangeWarning?
 
     // MARK: - Types
 
@@ -38,6 +39,23 @@ class PairingManager: ObservableObject {
         let hostname: String
         let publicKey: Data
         let callback: (Bool) -> Void
+    }
+
+    /// 既存ペアと公開鍵が異なる場合の警告（TOFU鍵ローテーション検知）
+    struct KeyChangeWarning: Identifiable {
+        let id = UUID()
+        let deviceId: String
+        let hostname: String
+        let oldPublicKey: Data
+        let newPublicKey: Data
+        let callback: (Bool) -> Void  // true=新しい鍵を信頼, false=拒否
+    }
+
+    /// 鍵の照合結果
+    enum KeyCheckResult {
+        case match            // 既存鍵と一致
+        case mismatch         // 既存鍵と不一致 (警告すべき)
+        case unknown          // 未ペアリング (新規)
     }
 
     // MARK: - Constants
@@ -170,6 +188,62 @@ class PairingManager: ObservableObject {
             self.savePairedDevices()
             print("[PairingManager] Trust recorded: \(hostname) [\(deviceId)]")
         }
+    }
+
+    // MARK: - Fingerprint & Key Change Detection
+
+    /// 公開鍵から人間可読なfingerprintを生成 (SHA256の先頭16バイトを4組のhex)
+    /// 例: "A1B2:C3D4:E5F6:0708:..." (8グループ、16文字×4=ID用)
+    static func fingerprint(of publicKey: Data) -> String {
+        let digest = SHA256.hash(data: publicKey)
+        let hex = digest.map { String(format: "%02X", $0) }.joined()
+        // 4文字毎に区切って先頭32文字 (16バイト分) を採用
+        let prefix = String(hex.prefix(32))
+        return stride(from: 0, to: prefix.count, by: 4).map {
+            let start = prefix.index(prefix.startIndex, offsetBy: $0)
+            let end = prefix.index(start, offsetBy: 4)
+            return String(prefix[start..<end])
+        }.joined(separator: ":")
+    }
+
+    /// 接続時に受信した公開鍵と保存済みの鍵を照合
+    func checkKey(deviceId: String, incomingPublicKey: Data) -> KeyCheckResult {
+        guard let stored = getPublicKey(for: deviceId) else { return .unknown }
+        return stored == incomingPublicKey ? .match : .mismatch
+    }
+
+    /// 鍵変更警告をUIに提示 (ユーザーが新しい鍵を信頼するか拒否するかを待つ)
+    func requestKeyChangeApproval(
+        deviceId: String,
+        hostname: String,
+        oldPublicKey: Data,
+        newPublicKey: Data,
+        completion: @escaping (Bool) -> Void
+    ) {
+        DispatchQueue.main.async {
+            self.pendingKeyChangeWarning = KeyChangeWarning(
+                deviceId: deviceId,
+                hostname: hostname,
+                oldPublicKey: oldPublicKey,
+                newPublicKey: newPublicKey,
+                callback: completion
+            )
+        }
+    }
+
+    /// 鍵変更警告のユーザー応答を反映
+    func respondToKeyChange(trustNewKey: Bool) {
+        guard let warning = pendingKeyChangeWarning else { return }
+        if trustNewKey {
+            recordTrust(deviceId: warning.deviceId, hostname: warning.hostname, publicKey: warning.newPublicKey)
+            // 古いセッション/リプレイ状態を破棄して再導出を強制
+            CryptoManager.shared.removeSessionKey(for: warning.deviceId)
+            print("[Pairing] User trusted new key for \(warning.hostname) — re-trust recorded")
+        } else {
+            print("[Pairing] User rejected key change for \(warning.hostname)")
+        }
+        warning.callback(trustNewKey)
+        pendingKeyChangeWarning = nil
     }
 
     // MARK: - Device Management

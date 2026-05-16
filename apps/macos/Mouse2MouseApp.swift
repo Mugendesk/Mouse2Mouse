@@ -61,6 +61,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // ペアリング承認ダイアログの監視
         installPairingApprovalHandler()
+        installKeyChangeWarningHandler()
 
         // サービス起動
         startServices()
@@ -73,9 +74,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             .receive(on: DispatchQueue.main)
             .sink { pending in
                 guard let pending = pending else { return }
+                let fingerprint = PairingManager.fingerprint(of: pending.publicKey)
                 let alert = NSAlert()
                 alert.messageText = "\(pending.hostname) からの接続要求"
-                alert.informativeText = "このデバイスとペアリングして接続を許可しますか？\n一度許可すると以降は自動的に承認されます。"
+                alert.informativeText = """
+                このデバイスとペアリングして接続を許可しますか？
+                一度許可すると以降は自動的に承認されます。
+
+                鍵フィンガープリント:
+                \(fingerprint)
+                """
                 alert.alertStyle = .warning
                 alert.addButton(withTitle: "許可")
                 alert.addButton(withTitle: "拒否")
@@ -84,6 +92,41 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 let approved = response == .alertFirstButtonReturn
                 PairingManager.shared.respondToApproval(approved: approved)
                 print("[Pairing] User \(approved ? "approved" : "rejected") \(pending.hostname)")
+            }
+            .store(in: &cancellables)
+    }
+
+    /// TOFU鍵ローテーション検知時の警告ダイアログ
+    private func installKeyChangeWarningHandler() {
+        PairingManager.shared.$pendingKeyChangeWarning
+            .receive(on: DispatchQueue.main)
+            .sink { warning in
+                guard let warning = warning else { return }
+                let oldFp = PairingManager.fingerprint(of: warning.oldPublicKey)
+                let newFp = PairingManager.fingerprint(of: warning.newPublicKey)
+                let alert = NSAlert()
+                alert.messageText = "⚠️ \(warning.hostname) の鍵が変わりました"
+                alert.informativeText = """
+                このデバイスの公開鍵が前回と異なります。
+                相手が再インストールした場合はあり得ますが、中間者攻撃の可能性もあります。
+
+                以前の鍵:
+                \(oldFp)
+
+                新しい鍵:
+                \(newFp)
+
+                相手と直接確認できる場合のみ「信頼」してください。
+                """
+                alert.alertStyle = .critical
+                alert.addButton(withTitle: "拒否")
+                alert.addButton(withTitle: "新しい鍵を信頼")
+                NSApp.activate(ignoringOtherApps: true)
+                let response = alert.runModal()
+                // alertFirstButtonReturn = 拒否, alertSecondButtonReturn = 信頼
+                let trusted = response == .alertSecondButtonReturn
+                PairingManager.shared.respondToKeyChange(trustNewKey: trusted)
+                print("[Pairing] User \(trusted ? "trusted" : "rejected") new key for \(warning.hostname)")
             }
             .store(in: &cancellables)
     }
