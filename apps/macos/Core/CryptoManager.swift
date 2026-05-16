@@ -14,6 +14,13 @@ class CryptoManager {
     // セッションキー（ペアごとに異なる）
     private var sessionKeys: [String: SymmetricKey] = [:]
 
+    // リプレイ防止: ピア毎の送信シーケンス番号
+    private var outgoingSeq: [String: UInt64] = [:]
+    // リプレイ防止: ピア毎の最後に受信したシーケンス番号
+    private var lastIncomingSeq: [String: UInt64] = [:]
+    // リプレイ防止: タイムスタンプ許容ウィンドウ (秒)
+    private let timestampWindow: TimeInterval = 60.0
+
     // MARK: - Lifecycle
 
     private init() {
@@ -124,24 +131,30 @@ class CryptoManager {
     /// セッションキーを削除
     func removeSessionKey(for peerId: String) {
         sessionKeys.removeValue(forKey: peerId)
+        resetReplayState(for: peerId)
     }
 
     /// 全てのセッションキーを削除
     func clearAllSessionKeys() {
         sessionKeys.removeAll()
+        outgoingSeq.removeAll()
+        lastIncomingSeq.removeAll()
     }
 
     // MARK: - Secure Message Wrapper
 
     /// 暗号化されたメッセージラッパー（typeフィールドのみ必須）
     struct EncryptedMessage: Codable {
-        let type: String = "encrypted"
+        let type: String
         let data: String  // Base64 encoded encrypted data
         let timestamp: Double
+        let seq: UInt64
 
-        init(data: String) {
+        init(data: String, seq: UInt64) {
+            self.type = "encrypted"
             self.data = data
             self.timestamp = Date().timeIntervalSince1970
+            self.seq = seq
         }
     }
 
@@ -149,7 +162,11 @@ class CryptoManager {
     func wrapMessage(_ message: String, for peerId: String) -> String? {
         guard let encrypted = encrypt(message, for: peerId) else { return nil }
 
-        let wrapper = EncryptedMessage(data: encrypted)
+        // 送信シーケンスをインクリメント (1始まり、0は未使用センチネル)
+        let nextSeq = (outgoingSeq[peerId] ?? 0) &+ 1
+        outgoingSeq[peerId] = nextSeq
+
+        let wrapper = EncryptedMessage(data: encrypted, seq: nextSeq)
 
         guard let data = try? JSONEncoder().encode(wrapper),
               let json = String(data: data, encoding: .utf8) else {
@@ -160,13 +177,41 @@ class CryptoManager {
     }
 
     /// ラップされたメッセージを復号（接続コンテキストから既知のpeerIdを使用）
+    /// リプレイ攻撃対策: シーケンス番号とタイムスタンプを検証
     func unwrapMessage(_ json: String, from peerId: String) -> String? {
         guard let data = json.data(using: .utf8),
               let wrapper = try? JSONDecoder().decode(EncryptedMessage.self, from: data) else {
             return nil
         }
 
-        return decrypt(wrapper.data, from: peerId)
+        // タイムスタンプ検証 (時計ズレ ±timestampWindow 秒まで許容)
+        let now = Date().timeIntervalSince1970
+        if abs(now - wrapper.timestamp) > timestampWindow {
+            print("Replay protection: timestamp out of window for peer \(peerId) (delta=\(now - wrapper.timestamp)s)")
+            return nil
+        }
+
+        // シーケンス番号検証 (厳密に単調増加)
+        if let lastSeq = lastIncomingSeq[peerId], wrapper.seq <= lastSeq {
+            print("Replay protection: stale/duplicate seq \(wrapper.seq) <= \(lastSeq) for peer \(peerId)")
+            return nil
+        }
+
+        guard let decrypted = decrypt(wrapper.data, from: peerId) else {
+            // 復号失敗時はseqを進めない (改竄や鍵不一致を意味するため)
+            return nil
+        }
+
+        lastIncomingSeq[peerId] = wrapper.seq
+        return decrypted
+    }
+
+    // MARK: - Replay Protection State
+
+    /// 切断・再接続時にリプレイ防止状態をリセット
+    func resetReplayState(for peerId: String) {
+        outgoingSeq.removeValue(forKey: peerId)
+        lastIncomingSeq.removeValue(forKey: peerId)
     }
 }
 
