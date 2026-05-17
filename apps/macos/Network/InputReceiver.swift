@@ -23,13 +23,13 @@ class InputReceiver {
     private var cachedTrustedAt: CFAbsoluteTime = 0
     private let trustedCacheTTL: CFAbsoluteTime = 5.0
 
-    // CGWarp / mouseMoved postの絞り込み（Launchpad/Dock/MC等の高負荷UIが
-    // 高頻度のhover更新で崩壊するのを防ぐ）。
-    // CGWarpはWindowServer直接で副作用なしなのでnetwork rate full。
-    // mouseMoved postは60Hzに絞る（Launchpad/MC等のhover効果が高頻度で暴走するため）。
+    // mouseMoved postの絞り込み。warp廃止に伴いcursor移動はevent post依存のため
+    // ディスプレイのリフレッシュレートに合わせる（60Hzだと120Hzパネルで2フレームに1回しか
+    // 描画されずカクつくため、上限を引き上げ）。
+    // Launchpad/MC等のhover暴走対策には残しておく(完全に外すと200Hz post で thrash)。
     // ドラッグ中はpostも全レート（描画/選択精度のため）。
     private var lastMoveEventPostTime: CFAbsoluteTime = 0
-    private let mouseMovedPostInterval: CFAbsoluteTime = 1.0 / 60.0
+    private var mouseMovedPostInterval: CFAbsoluteTime = 1.0 / 120.0  // 動的更新（refreshDisplayRate）
     // Launchpad/MC等はmouseEventDeltaX/Yで「動いた」を判定するため、
     // delta=0だと「動いてない」と認識されhighlightが付いてこない（カーソル
     // ダブり症状の原因）。前回post位置からのdeltaを必ず設定する。
@@ -38,6 +38,19 @@ class InputReceiver {
     private init() {
         cachedTrusted = AXIsProcessTrusted()
         cachedTrustedAt = CFAbsoluteTimeGetCurrent()
+        refreshDisplayRate()
+    }
+
+    /// メインディスプレイのリフレッシュレートを取得し、post間隔を更新する。
+    /// 起動時 + 画面構成変更時に呼ぶ。
+    func refreshDisplayRate() {
+        let displayId = CGMainDisplayID()
+        guard let mode = CGDisplayCopyDisplayMode(displayId) else { return }
+        let rate = mode.refreshRate
+        // 0は仮想ディスプレイ(VNC等)で起きる。安全側で120Hzをデフォルト
+        let effectiveRate = rate > 0 ? rate : 120.0
+        mouseMovedPostInterval = 1.0 / effectiveRate
+        print("[InputReceiver] Display refresh rate: \(effectiveRate)Hz → post interval \(String(format: "%.2f", mouseMovedPostInterval * 1000))ms")
     }
 
     private func isAccessibilityTrusted() -> Bool {
