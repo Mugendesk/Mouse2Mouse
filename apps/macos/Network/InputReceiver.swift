@@ -92,10 +92,15 @@ class InputReceiver {
             return
         }
 
-        // CGWarpMouseCursorPositionはWindowServer直接でイベント発火しない（位置更新のみ）。
-        // Launchpad/MC等の暴走原因はmouseMovedイベントのpost頻度なので、Warpは間引かず
-        // network rate full で位置を反映 → カーソルが滑らかに見える。
-        CGWarpMouseCursorPosition(point)
+        // CGWarpMouseCursorPositionは「カーソルwarp」専用経路でWindowServerに直接行く。
+        // この経路は重いアプリ（Finder/ブラウザ等）描画と合成サイクルが coupling されてて
+        // 重いアプリ上でカーソル位置反映が遅れる症状が出る。
+        //
+        // 代わりにCGEvent .mouseMoved を .cghidEventTap に post すると、ローカルマウスの
+        // HID経路と同じパイプラインで処理され、WindowServerは「実HIDイベントが来た」と
+        // 同等に扱う → カーソル sprite refresh も同優先度で進む。
+        // (参考: Barrier OSXScreen.mm の fakeMouseMove も warp呼ばず event post のみ)
+        // warpは呼ばない。
 
         // イベントタイプ決定
         let (eventType, button): (CGEventType, CGMouseButton)
