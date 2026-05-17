@@ -66,6 +66,14 @@ class InputReceiver {
     // MARK: - Cursor Movement
 
     func handleCursorMove(x: Double, y: Double) {
+        let startTime = CFAbsoluteTimeGetCurrent()
+        defer {
+            let elapsed = CFAbsoluteTimeGetCurrent() - startTime
+            if elapsed > PerfLogger.slowOperationThresholdSec {
+                print("[PerfLogger] ⏱ InputReceiver.handleCursorMove: \(String(format: "%.1f", elapsed * 1000))ms")
+            }
+        }
+
         // 仮想デスクトップ全体（全ディスプレイの和集合）を基準に正規化座標を解釈
         let union = ScreenManager.shared.localVirtualDesktopQuartz()
         guard union.width > 0, union.height > 0 else { return }

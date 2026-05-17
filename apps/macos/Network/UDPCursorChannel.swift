@@ -78,6 +78,11 @@ final class UDPCursorChannel {
     private let sendJitter = IntervalStats(name: "Cursor send")
     private let recvJitter = IntervalStats(name: "Cursor recv")
 
+    // 片道遅延の「変動」を見るための統計。
+    // 送受信間のクロックずれで絶対値はオフセットされるが、変動分（p99 - p50など）が
+    // 大きくなれば「matcha起動時に遅延が増えた」ことを検出できる。
+    private let oneWayLatency = LatencyStats(name: "Cursor latency")
+
     private init() {}
 
     // MARK: - Lifecycle
@@ -160,8 +165,11 @@ final class UDPCursorChannel {
         // WS接続中のピアが居なければドロップ（WS切断後のゾンビ動作と同一LANスプーフィング両方を遮断）
         guard !DiscoveryService.shared.connectedPeers.isEmpty else { return }
         lastReceivedTimestamp = pkt.timestamp
+        let recvTime = CFAbsoluteTimeGetCurrent()
         sendJitter.tick(at: pkt.timestamp)
         recvJitter.tick()
+        // recvTime - pkt.timestamp は送受信間のクロックずれを含むが、変動だけ見れば意味がある
+        oneWayLatency.record(recvTime - pkt.timestamp)
         InputCapture.shared.peerMessageReceived()
         InputReceiver.shared.handleCursorMove(x: pkt.x, y: pkt.y)
     }
@@ -255,5 +263,51 @@ final class IntervalStats {
         let maxMs = (sorted.last ?? 0) * 1000
         print(String(format: "[%@] n=%d rate=%dHz min=%.2fms p50=%.2fms p95=%.2fms p99=%.2fms max=%.2fms",
                      name, count, Int(rate), minMs, p50, p95, p99, maxMs))
+    }
+}
+
+/// 片道遅延を p50/p95/p99/max + spread (p99-p50) で定期ログ出力する。
+/// 送受信機のクロックがズレてるので絶対値は意味がないが、
+/// spread (= p99 - p50) や p50 そのものの**時系列変動** は意味がある。
+/// matcha起動の前後で spread が10ms→100ms に増えれば「matchaの影響」が確定する。
+final class LatencyStats {
+    private let name: String
+    private let lock = NSLock()
+    private var samples: [Double] = []  // 秒
+    private var lastReport: CFAbsoluteTime = 0
+    private let reportInterval: Double = 5.0
+    private let minSamplesToReport = 20
+
+    init(name: String) {
+        self.name = name
+    }
+
+    func record(_ latency: Double) {
+        let nowReal = CFAbsoluteTimeGetCurrent()
+        lock.lock()
+        samples.append(latency)
+        let shouldReport = (nowReal - lastReport > reportInterval) && (samples.count >= minSamplesToReport)
+        let toReport = shouldReport ? samples : []
+        if shouldReport {
+            samples.removeAll(keepingCapacity: true)
+            lastReport = nowReal
+        }
+        lock.unlock()
+        if !toReport.isEmpty {
+            report(toReport)
+        }
+    }
+
+    private func report(_ data: [Double]) {
+        let sorted = data.sorted()
+        let count = sorted.count
+        let p50 = sorted[count / 2] * 1000
+        let p95 = sorted[min(count - 1, Int(Double(count) * 0.95))] * 1000
+        let p99 = sorted[min(count - 1, Int(Double(count) * 0.99))] * 1000
+        let minMs = (sorted.first ?? 0) * 1000
+        let maxMs = (sorted.last ?? 0) * 1000
+        let spread = p99 - p50  // 変動の大きさ。これが膨らんだら詰まってる
+        print(String(format: "[%@] n=%d p50=%.1fms p95=%.1fms p99=%.1fms max=%.1fms min=%.1fms spread=%.1fms",
+                     name, count, p50, p95, p99, maxMs, minMs, spread))
     }
 }
