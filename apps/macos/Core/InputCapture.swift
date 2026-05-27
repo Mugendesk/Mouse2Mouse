@@ -110,7 +110,7 @@ class InputCapture: ObservableObject {
         let tapOption: CGEventTapOptions = useDefaultTap ? .defaultTap : .listenOnly
         let callback: CGEventTapCallBack = { proxy, type, event, userInfo in
             guard let userInfo = userInfo else {
-                return Unmanaged.passRetained(event)
+                return Unmanaged.passUnretained(event)
             }
             let capture = Unmanaged<InputCapture>.fromOpaque(userInfo).takeUnretainedValue()
             return capture.handleEvent(proxy: proxy, type: type, event: event)
@@ -320,7 +320,7 @@ class InputCapture: ObservableObject {
             if let tap = eventTap {
                 CGEvent.tapEnable(tap: tap, enable: true)
             }
-            return Unmanaged.passRetained(event)
+            return Unmanaged.passUnretained(event)
         }
 
         switch type {
@@ -389,7 +389,10 @@ class InputCapture: ObservableObject {
             return nil
         }
 
-        return Unmanaged.passRetained(event)
+        // passUnretained 必須。listenOnlyタップでは戻り値をシステムが無視する（イベントの
+        // 改変/ブロック不可）ため、passRetainedすると +1 した参照が誰にも解放されず
+        // 1イベントごとにCGEventがリーク → 長時間で数GB / Machポート数百に膨張する。
+        return Unmanaged.passUnretained(event)
     }
 
     // MARK: - Mouse Events
