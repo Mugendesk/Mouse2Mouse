@@ -338,9 +338,12 @@ class InputCapture: ObservableObject {
             handleMouseButton(button: 1, isDown: false, event: event)
 
         case .otherMouseDown:
-            handleMouseButton(button: 2, isDown: true, event: event)
+            // 実ボタン番号を読む (2=middle, 3=back, 4=forward, ...)
+            let btn = Int(event.getIntegerValueField(.mouseEventButtonNumber))
+            handleMouseButton(button: btn, isDown: true, event: event)
         case .otherMouseUp:
-            handleMouseButton(button: 2, isDown: false, event: event)
+            let btn = Int(event.getIntegerValueField(.mouseEventButtonNumber))
+            handleMouseButton(button: btn, isDown: false, event: event)
 
         case .scrollWheel:
             handleScroll(event: event)
