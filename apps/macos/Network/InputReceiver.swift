@@ -158,12 +158,13 @@ class InputReceiver {
             downType = .rightMouseDown
             upType = .rightMouseUp
             rightButtonDown = isDown
-        default:  // 2=middle, 3=back, 4=forward, ...
-            guard let mb = CGMouseButton(rawValue: UInt32(button)) else { return }
-            mouseButton = mb
+        case 2:  // Middle
+            mouseButton = .center
             downType = .otherMouseDown
             upType = .otherMouseUp
             otherButtonDown = isDown
+        default:
+            return
         }
 
         let eventType = isDown ? downType : upType
@@ -176,10 +177,6 @@ class InputReceiver {
             mouseCursorPosition: position,
             mouseButton: mouseButton
         )
-        // otherMouse系は実ボタン番号を明示しないとブラウザ等が back/forward を認識しない
-        if eventType == .otherMouseDown || eventType == .otherMouseUp {
-            event?.setIntegerValueField(.mouseEventButtonNumber, value: Int64(button))
-        }
         // clickCountを設定（macOSアプリがクリックを認識するために必須）
         event?.setIntegerValueField(.mouseEventClickState, value: Int64(clickCount))
         event?.post(tap: .cghidEventTap)
