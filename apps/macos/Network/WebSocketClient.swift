@@ -197,7 +197,16 @@ class ConnectionManager: ObservableObject {
 
     @Published var activeConnections: [String: WebSocketClient] = [:]
 
+    /// ピアごとの Noise セキュアチャネル (initiator)。activeConnections と同じ peerId で対応。
+    private var secureChannels: [String: SecureChannel] = [:]
+
     private init() {}
+
+    /// 暗号化してアプリメッセージを送る (client 経路)。確立前・未接続は false。
+    @discardableResult
+    func sendSecure(_ message: String, to peerId: String) -> Bool {
+        return secureChannels[peerId]?.sendApp(message) ?? false
+    }
 
     // MARK: - Connection Management
 
@@ -312,12 +321,27 @@ class ConnectionManager: ObservableObject {
                     DiscoveryService.shared.connectedPeers.append(connectedPeer)
                 }
 
-                // 接続後に自分のdeviceInfoを送信（鍵交換用なので暗号化しない）
-                if let message = DiscoveryService.shared.buildLocalDeviceInfoMessage(),
-                   let json = MessageEncoder.shared.encode(message) {
-                    client.send(json)
-                    print("[ConnectionManager] Sent deviceInfo to \(peer.name)")
+                // Noise セキュアチャネルを張る (initiator)。ハンドシェイク完了後に
+                // 自分の deviceInfo を暗号化して送る (旧来の平文 deviceInfo 送信は廃止)。
+                let sc = SecureChannel.initiator(sendFrame: { [weak client] frame in
+                    client?.send(frame)
+                })
+                sc.onEstablished = { [weak sc] _, _, _, _ in
+                    guard let sc = sc else { return }
+                    if let message = DiscoveryService.shared.buildLocalDeviceInfoMessage(),
+                       let json = MessageEncoder.shared.encode(message) {
+                        sc.sendApp(json)
+                        print("[ConnectionManager] Sent encrypted deviceInfo to \(peer.name)")
+                    }
                 }
+                sc.onMessage = { [weak self] plaintext in
+                    DispatchQueue.main.async { self?.handleMessage(plaintext, from: peer.id) }
+                }
+                sc.onClosed = { [weak self] in
+                    DispatchQueue.main.async { self?.disconnect(from: peer.id) }
+                }
+                self?.secureChannels[peer.id] = sc
+                sc.start()
             }
         }
 
@@ -325,6 +349,7 @@ class ConnectionManager: ObservableObject {
             print("Disconnected from \(peer.name): \(error?.localizedDescription ?? "unknown")")
             DispatchQueue.main.async {
                 self?.activeConnections.removeValue(forKey: peer.id)
+                self?.secureChannels.removeValue(forKey: peer.id)
                 DiscoveryService.shared.connectedPeers.removeAll { $0.id == peer.id }
 
                 // 接続切れ時にリモートモードを終了してフリーズ防止
@@ -336,10 +361,10 @@ class ConnectionManager: ObservableObject {
             }
         }
 
-        client.onMessage = { [weak self] message in
+        client.onMessage = { [weak self] raw in
             // URLSession completionはバックグラウンドスレッドの可能性あり → メインスレッドへ
             DispatchQueue.main.async {
-                self?.handleMessage(message, from: peer.id)
+                self?.routeRawMessage(raw, from: peer.id, client: client)
             }
         }
 
@@ -354,6 +379,7 @@ class ConnectionManager: ObservableObject {
         }
         activeConnections[peerId]?.disconnect()
         activeConnections.removeValue(forKey: peerId)
+        secureChannels.removeValue(forKey: peerId)
         UDPCursorChannel.shared.removePeer(peerId: peerId)
         ScreenManager.shared.removeRemoteScreen(deviceId: peerId)
     }
@@ -371,22 +397,35 @@ class ConnectionManager: ObservableObject {
             client.disconnect()
         }
         activeConnections.removeAll()
+        secureChannels.removeAll()
     }
 
     // MARK: - Message Handling
 
-    private func handleMessage(_ rawMessage: String, from peerId: String) {
+    /// WebSocket から来た生テキストを振り分ける。
+    /// noise envelope は SecureChannel へ、それ以外は keepalive(ping/pong) のみ許可。
+    /// 平文のアプリメッセージは一切処理しない (fail-open 防止)。
+    private func routeRawMessage(_ raw: String, from peerId: String, client: WebSocketClient) {
+        InputCapture.shared.peerMessageReceived()
+        if let frame = SecureChannel.decodeEnvelope(raw) {
+            secureChannels[peerId]?.receiveFrame(frame)
+            return
+        }
+        switch MessageEncoder.shared.decodeType(from: raw) {
+        case .ping:
+            let pong = "{\"type\":\"pong\",\"timestamp\":\(Date().timeIntervalSince1970)}"
+            client.send(pong)
+        case .pong:
+            client.notePong()
+        default:
+            break  // 平文アプリメッセージは破棄 (暗号チャネル外は信用しない)
+        }
+    }
+
+    /// SecureChannel から復号済みのアプリメッセージを処理する。
+    private func handleMessage(_ message: String, from peerId: String) {
         // ピア無音検知ウォッチドッグのリセット（リモートモード中の生存確認）
         InputCapture.shared.peerMessageReceived()
-
-        // 暗号化メッセージのアンラップ（peerIdは接続コンテキストから既知）
-        let message: String
-        if MessageEncoder.shared.decodeType(from: rawMessage) == .encrypted,
-           let decrypted = CryptoManager.shared.unwrapMessage(rawMessage, from: peerId) {
-            message = decrypted
-        } else {
-            message = rawMessage
-        }
 
         guard let type = MessageEncoder.shared.decodeType(from: message) else {
             print("Unknown message type from \(peerId)")
@@ -438,6 +477,13 @@ class ConnectionManager: ObservableObject {
         case .deviceInfo:
             if let msg = MessageEncoder.shared.decode(DeviceInfoMessage.self, from: message) {
                 handleDeviceInfo(msg, from: peerId)
+            }
+
+        case .udpHandshake:
+            if let d = message.data(using: .utf8),
+               let obj = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
+               let b64 = obj["frame"] as? String {
+                UDPCursorChannel.shared.receiveTunneledHandshake(peerId: peerId, frameBase64: b64)
             }
 
         case .pairingResponse:
@@ -493,12 +539,8 @@ class ConnectionManager: ObservableObject {
     }
 
     private func handleDeviceInfo(_ message: DeviceInfoMessage, from peerId: String) {
-        // TOFU: 相手の公開鍵からセッション鍵を導出
-        if let peerKey = message.publicKey {
-            if CryptoManager.shared.deriveSessionKey(peerPublicKeyBase64: peerKey, peerId: peerId) {
-                print("[TOFU] Session key derived for \(peerId) (client side)")
-            }
-        }
+        // 鍵交換は Noise ハンドシェイクで完了済み。ここでは画面情報の取り込みと
+        // 信頼記録のみ行う (相手の static key は SecureChannel が保持している)。
 
         // リモート画面として追加（screens配列があればディスプレイ単位で追加）
         if let screens = message.screens, !screens.isEmpty {
@@ -513,13 +555,18 @@ class ConnectionManager: ObservableObject {
         }
         print("[DeviceInfo] Added \(message.screens?.count ?? 1) display(s) for peer \(message.hostname) [\(peerId)]")
 
-        // 接続成功 = サーバー側が受諾した = 信頼を記録（次回以降は相互ペア済み扱い）
-        let publicKeyData = message.publicKey.flatMap { Data(base64Encoded: $0) } ?? Data()
+        // 接続成功 = サーバー側が受諾した = 信頼を記録（次回以降は相互ペア済み扱い）。
+        // 記録する鍵は Noise ハンドシェイクで PoP 済みの相手 static key を使う。
+        let staticKey = secureChannels[peerId]?.remoteStaticKey ?? Data()
         PairingManager.shared.recordTrust(
             deviceId: message.deviceId,
             hostname: message.hostname,
-            publicKey: publicKeyData
+            publicKey: staticKey
         )
+
+        // サーバーが受諾 = 接続確立。UDP カーソル用のセキュア Datagram セッションを開始
+        // (client=initiator。ハンドシェイクは暗号化済み WS 上をトンネルする)。
+        UDPCursorChannel.shared.beginSecureSession(peerId: peerId, isInitiator: true)
     }
 
     private func handlePairingResponse(_ message: PairingResponseMessage, from peerId: String) {

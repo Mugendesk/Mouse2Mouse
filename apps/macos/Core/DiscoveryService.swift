@@ -316,6 +316,9 @@ class DiscoveryService: ObservableObject {
     // WebSocketServerのクライアントID → peerIDのマッピング
     private var serverClientMapping: [String: String] = [:]
 
+    // clientId ごとの Noise セキュアチャネル (responder)
+    private var serverChannels: [String: SecureChannel] = [:]
+
     // メッセージレート制限（DoS防止）
     // カーソル1000Hz + heartbeat + 余裕で2000/sec
     private var messageRates: [String: (count: Int, resetTime: Date)] = [:]
@@ -325,13 +328,27 @@ class DiscoveryService: ObservableObject {
         webSocketServer = WebSocketServer(port: defaultPort)
 
         webSocketServer?.onClientConnected = { [weak self] clientId in
-            print("[WebSocketServer] Client connected: \(clientId)")
-            print("[WebSocketServer] Waiting for deviceInfo from client...")
+            guard let self = self else { return }
+            // responder の Noise セキュアチャネルを張る。ハンドシェイクは相手 (initiator)
+            // の最初のフレームで駆動される。確立後、暗号化された deviceInfo が届いたら
+            // handleServerMessage で承認判断する。
+            let sc = SecureChannel.responder(sendFrame: { [weak self] frame in
+                self?.webSocketServer?.send(frame, to: clientId)
+            })
+            sc.onMessage = { [weak self] plaintext in
+                self?.handleServerMessage(plaintext, clientId: clientId)
+            }
+            sc.onClosed = { [weak self] in
+                self?.webSocketServer?.disconnect(clientId: clientId)
+            }
+            self.serverChannels[clientId] = sc
+            print("[WebSocketServer] Client connected: \(clientId) (awaiting Noise handshake)")
         }
 
         webSocketServer?.onClientDisconnected = { [weak self] clientId in
             guard let self = self else { return }
             print("[WebSocketServer] Client disconnected: \(clientId)")
+            self.serverChannels.removeValue(forKey: clientId)
             if let peerId = self.serverClientMapping[clientId] {
                 UDPCursorChannel.shared.removePeer(peerId: peerId)
                 DispatchQueue.main.async {
@@ -368,172 +385,16 @@ class DiscoveryService: ObservableObject {
             }
             self.messageRates[clientId] = rate
 
-            // 高頻度パス: 入力イベントは暗号化されていないので直接decode→処理
-            // (decodeType×複数回のJSON parseを避ける)
-            if let cursorMsg = MessageEncoder.shared.decode(CursorMoveMessage.self, from: rawMessage),
-               cursorMsg.type == "cursor_move" {
-                InputReceiver.shared.handleCursorMove(x: cursorMsg.x, y: cursorMsg.y)
+            // Noise envelope はセキュアチャネルへ流す。復号済みメッセージは
+            // SecureChannel.onMessage → handleServerMessage に上がってくる。
+            if let frame = SecureChannel.decodeEnvelope(rawMessage) {
+                self.serverChannels[clientId]?.receiveFrame(frame)
                 return
             }
-
-            // clientIdからpeerIdを解決（暗号化復号に必要）
-            let senderPeerId = self.serverClientMapping[clientId] ?? clientId
-
-            // 暗号化メッセージのアンラップを試みる（初回typeデコードを保持して再利用）
-            let initialType = MessageEncoder.shared.decodeType(from: rawMessage)
-            let message: String
-            let type: MessageType?
-            if initialType == .encrypted,
-               let decrypted = CryptoManager.shared.unwrapMessage(rawMessage, from: senderPeerId) {
-                message = decrypted
-                type = MessageEncoder.shared.decodeType(from: message)
-            } else {
-                message = rawMessage
-                type = initialType
-            }
-
-            guard let type = type else { return }
-
-            switch type {
-            case .ping:
-                // pongで即応答（ピア生存確認用）
+            // 非暗号は WebSocket keepalive の ping のみ許可 (平文アプリメッセージは一切処理しない)。
+            if MessageEncoder.shared.decodeType(from: rawMessage) == .ping {
                 let pong = "{\"type\":\"pong\",\"timestamp\":\(Date().timeIntervalSince1970)}"
                 self.webSocketServer?.send(pong, to: clientId)
-                return
-            case .pong:
-                return
-            case .deviceInfo:
-                if let msg = MessageEncoder.shared.decode(DeviceInfoMessage.self, from: message) {
-                    let publicKeyData = msg.publicKey.flatMap { Data(base64Encoded: $0) } ?? Data()
-
-                    let rejectAndDisconnect: () -> Void = { [weak self] in
-                        guard let self = self else { return }
-                        let response = PairingResponseMessage(accepted: false)
-                        if let json = MessageEncoder.shared.encode(response) {
-                            self.webSocketServer?.send(json, to: clientId)
-                        }
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                            self.webSocketServer?.disconnect(clientId: clientId)
-                        }
-                    }
-
-                    // ペアリング承認ゲート + TOFU鍵照合
-                    if PairingManager.shared.isPaired(deviceId: msg.deviceId) {
-                        switch PairingManager.shared.checkKey(deviceId: msg.deviceId, incomingPublicKey: publicKeyData) {
-                        case .match:
-                            self.proceedDeviceInfo(msg, clientId: clientId)
-                        case .mismatch:
-                            let oldKey = PairingManager.shared.getPublicKey(for: msg.deviceId) ?? Data()
-                            print("[Pairing] WARNING: key change detected for \(msg.hostname) [\(msg.deviceId)]")
-                            PairingManager.shared.requestKeyChangeApproval(
-                                deviceId: msg.deviceId,
-                                hostname: msg.hostname,
-                                oldPublicKey: oldKey,
-                                newPublicKey: publicKeyData
-                            ) { [weak self] trusted in
-                                guard let self = self else { return }
-                                if trusted {
-                                    self.proceedDeviceInfo(msg, clientId: clientId)
-                                } else {
-                                    rejectAndDisconnect()
-                                }
-                            }
-                        case .unknown:
-                            // isPairedがtrueなのにunknownはあり得ないが防御的に
-                            rejectAndDisconnect()
-                        }
-                    } else {
-                        print("[Pairing] Approval requested for \(msg.hostname) [\(msg.deviceId)]")
-                        PairingManager.shared.requestApproval(
-                            deviceId: msg.deviceId,
-                            hostname: msg.hostname,
-                            publicKey: publicKeyData
-                        ) { [weak self] approved in
-                            guard let self = self else { return }
-                            if approved {
-                                self.proceedDeviceInfo(msg, clientId: clientId)
-                            } else {
-                                rejectAndDisconnect()
-                            }
-                        }
-                    }
-                }
-            case .screenLayout:
-                if let msg = MessageEncoder.shared.decode(ScreenLayoutMessage.self, from: message) {
-                    // clientIdからpeerIdを取得
-                    let peerId = self.serverClientMapping[clientId] ?? clientId
-
-                    let reverseEdge: ScreenManager.RemoteScreen.Edge
-                    switch msg.edge {
-                    case "left": reverseEdge = .right
-                    case "right": reverseEdge = .left
-                    case "top": reverseEdge = .bottom
-                    case "bottom": reverseEdge = .top
-                    default: reverseEdge = .right
-                    }
-
-                    if let index = ScreenManager.shared.remoteScreens.firstIndex(where: { $0.id == peerId }) {
-                        DispatchQueue.main.async {
-                            ScreenManager.shared.remoteScreens[index].attachedTo = msg.localDeviceId
-                            ScreenManager.shared.remoteScreens[index].attachedEdge = reverseEdge
-                            ScreenManager.shared.remoteScreens[index].offsetX = -CGFloat(msg.offsetX)
-                            ScreenManager.shared.remoteScreens[index].offsetY = -CGFloat(msg.offsetY)
-                            ScreenManager.shared.objectWillChange.send()
-                            ScreenManager.shared.saveLayout()
-                            print("[ScreenLayout] Updated layout for peerId: \(peerId)")
-                        }
-                    }
-                }
-            case .roleChange:
-                let peerId = self.serverClientMapping[clientId] ?? clientId
-                if let msg = MessageEncoder.shared.decode(RoleChangeMessage.self, from: message) {
-                    print("[DiscoveryService] Received roleChange from \(peerId): \(msg.role)")
-                    DispatchQueue.main.async {
-                        ScreenManager.shared.handleRemoteRoleChange(role: msg.role, fromDeviceId: msg.deviceId)
-                    }
-                }
-
-            case .cursorMove, .mouseButton, .scroll, .key, .controlTransfer, .clipboard:
-                // clientIdからpeerIdを取得
-                let peerId = self.serverClientMapping[clientId] ?? clientId
-
-                // WebSocketClientのメッセージハンドラーを呼び出す
-                ConnectionManager.shared.handleIncomingMessage(message, from: peerId)
-
-            case .filePrepare:
-                let peerId = self.serverClientMapping[clientId] ?? clientId
-                if let msg = MessageEncoder.shared.decode(FilePrepareMessage.self, from: message) {
-                    FileTransfer.shared.prepareReceive(
-                        transferId: msg.transferId,
-                        fileName: msg.fileName,
-                        fileSize: msg.fileSize,
-                        from: peerId
-                    )
-                }
-
-            case .fileRequest:
-                let peerId = self.serverClientMapping[clientId] ?? clientId
-                if let msg = MessageEncoder.shared.decode(FileRequestMessage.self, from: message) {
-                    FileTransfer.shared.handleFileRequest(path: msg.path, requestId: msg.requestId, to: peerId)
-                }
-
-            case .fileData:
-                if let msg = MessageEncoder.shared.decode(FileDataMessage.self, from: message) {
-                    FileTransfer.shared.receiveChunk(
-                        transferId: msg.transferId,
-                        chunkIndex: msg.chunkIndex,
-                        totalChunks: msg.totalChunks,
-                        data: msg.data
-                    )
-                }
-
-            case .fileComplete:
-                if let msg = MessageEncoder.shared.decode(FileCompleteMessage.self, from: message) {
-                    FileTransfer.shared.completeTransfer(transferId: msg.transferId, success: msg.success)
-                }
-
-            default:
-                break
             }
         }
 
@@ -550,6 +411,120 @@ class DiscoveryService: ObservableObject {
             webSocketServer?.start(bonjourName: info.hostname, txtRecord: txtRecord)
         } else {
             webSocketServer?.start()
+        }
+    }
+
+    // MARK: - Server Message Handling (decrypted)
+
+    /// SecureChannel から復号済みのアプリメッセージをサーバ役として処理する。
+    private func handleServerMessage(_ message: String, clientId: String) {
+        guard let type = MessageEncoder.shared.decodeType(from: message) else { return }
+        let peerId = self.serverClientMapping[clientId] ?? clientId
+
+        switch type {
+        case .ping:
+            // アプリレベル ping には暗号化 pong で応答。
+            let pong = "{\"type\":\"pong\",\"timestamp\":\(Date().timeIntervalSince1970)}"
+            self.serverChannels[clientId]?.sendApp(pong)
+        case .pong:
+            break
+        case .deviceInfo:
+            if let msg = MessageEncoder.shared.decode(DeviceInfoMessage.self, from: message) {
+                self.handleServerDeviceInfo(msg, clientId: clientId)
+            }
+        case .udpHandshake:
+            // UDP Datagram チャネルのハンドシェイク (server=responder, 遅延生成)。
+            if let d = message.data(using: .utf8),
+               let obj = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
+               let b64 = obj["frame"] as? String {
+                UDPCursorChannel.shared.receiveTunneledHandshake(peerId: peerId, frameBase64: b64)
+            }
+        case .screenLayout:
+            if let msg = MessageEncoder.shared.decode(ScreenLayoutMessage.self, from: message) {
+                let reverseEdge: ScreenManager.RemoteScreen.Edge
+                switch msg.edge {
+                case "left": reverseEdge = .right
+                case "right": reverseEdge = .left
+                case "top": reverseEdge = .bottom
+                case "bottom": reverseEdge = .top
+                default: reverseEdge = .right
+                }
+                if let index = ScreenManager.shared.remoteScreens.firstIndex(where: { $0.id == peerId }) {
+                    DispatchQueue.main.async {
+                        ScreenManager.shared.remoteScreens[index].attachedTo = msg.localDeviceId
+                        ScreenManager.shared.remoteScreens[index].attachedEdge = reverseEdge
+                        ScreenManager.shared.remoteScreens[index].offsetX = -CGFloat(msg.offsetX)
+                        ScreenManager.shared.remoteScreens[index].offsetY = -CGFloat(msg.offsetY)
+                        ScreenManager.shared.objectWillChange.send()
+                        ScreenManager.shared.saveLayout()
+                    }
+                }
+            }
+        case .roleChange:
+            if let msg = MessageEncoder.shared.decode(RoleChangeMessage.self, from: message) {
+                DispatchQueue.main.async {
+                    ScreenManager.shared.handleRemoteRoleChange(role: msg.role, fromDeviceId: msg.deviceId)
+                }
+            }
+        case .cursorMove, .mouseButton, .scroll, .key, .controlTransfer, .clipboard:
+            ConnectionManager.shared.handleIncomingMessage(message, from: peerId)
+        case .filePrepare:
+            if let msg = MessageEncoder.shared.decode(FilePrepareMessage.self, from: message) {
+                FileTransfer.shared.prepareReceive(transferId: msg.transferId, fileName: msg.fileName, fileSize: msg.fileSize, from: peerId)
+            }
+        case .fileRequest:
+            if let msg = MessageEncoder.shared.decode(FileRequestMessage.self, from: message) {
+                FileTransfer.shared.handleFileRequest(path: msg.path, requestId: msg.requestId, to: peerId)
+            }
+        case .fileData:
+            if let msg = MessageEncoder.shared.decode(FileDataMessage.self, from: message) {
+                FileTransfer.shared.receiveChunk(transferId: msg.transferId, chunkIndex: msg.chunkIndex, totalChunks: msg.totalChunks, data: msg.data)
+            }
+        case .fileComplete:
+            if let msg = MessageEncoder.shared.decode(FileCompleteMessage.self, from: message) {
+                FileTransfer.shared.completeTransfer(transferId: msg.transferId, success: msg.success)
+            }
+        default:
+            break
+        }
+    }
+
+    /// deviceInfo 受信時の承認ゲート。相手 static key が既知(authorized)ならダイアログ無しで
+    /// 受入、未知なら承認TOFU のダイアログを出す (fail-open ではなく確立後の PoP 済み fp で判断)。
+    private func handleServerDeviceInfo(_ msg: DeviceInfoMessage, clientId: String) {
+        guard let sc = self.serverChannels[clientId] else { return }
+        let staticKey = sc.remoteStaticKey ?? Data()
+
+        let rejectAndDisconnect: () -> Void = { [weak self] in
+            guard let self = self else { return }
+            if let json = MessageEncoder.shared.encode(PairingResponseMessage(accepted: false)) {
+                sc.sendApp(json)
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                self.serverChannels.removeValue(forKey: clientId)
+                self.webSocketServer?.disconnect(clientId: clientId)
+            }
+        }
+
+        if sc.authorized {
+            // 既知デバイス (static key が authorized_keys に一致) → ダイアログ無しで受入。
+            self.proceedDeviceInfo(msg, clientId: clientId)
+        } else {
+            // 未知デバイス → 承認TOFU のダイアログ。承認時の recordTrust(staticKey) は
+            // PairingManager.respondToApproval が実施する。
+            print("[Pairing] Approval requested for \(msg.hostname) [fp=\(sc.remoteFingerprint ?? "?")]")
+            PairingManager.shared.requestApproval(
+                deviceId: msg.deviceId,
+                hostname: msg.hostname,
+                publicKey: staticKey
+            ) { [weak self] approved in
+                guard let self = self else { return }
+                if approved {
+                    self.proceedDeviceInfo(msg, clientId: clientId)
+                } else {
+                    rejectAndDisconnect()
+                }
+            }
         }
     }
 
@@ -593,18 +568,13 @@ class DiscoveryService: ObservableObject {
             }
         }
 
-        // TOFU: 相手の公開鍵からセッション鍵を導出
-        if let peerKey = msg.publicKey {
-            if CryptoManager.shared.deriveSessionKey(peerPublicKeyBase64: peerKey, peerId: peerId) {
-                print("[TOFU] Session key derived for \(peerId) (server side)")
-            }
-        }
+        // 鍵交換は Noise ハンドシェイクで完了済み (deriveSessionKey は不要)。
 
-        // 自分のdeviceInfoを返信（鍵交換に使うので暗号化しない）
+        // 自分の deviceInfo を暗号化して返信 (相手が自分の画面情報を取り込むため)。
         if let responseMsg = self.buildLocalDeviceInfoMessage(),
            let json = MessageEncoder.shared.encode(responseMsg) {
-            self.webSocketServer?.send(json, to: clientId)
-            print("[DeviceInfo] Sent deviceInfo response to clientId: \(clientId)")
+            self.serverChannels[clientId]?.sendApp(json)
+            print("[DeviceInfo] Sent encrypted deviceInfo response to clientId: \(clientId)")
         }
     }
 
@@ -614,28 +584,20 @@ class DiscoveryService: ObservableObject {
         webSocketServer?.broadcast(message)
     }
 
+    /// アプリメッセージを peerId 宛に送る。常に Noise セキュアチャネル経由で暗号化される
+    /// (client 役なら secureChannels、server 役なら serverChannels)。`encrypt` は後方互換で
+    /// 残すが無視する (暗号化されない経路は存在しない)。
     func send(_ message: String, to peerId: String, encrypt: Bool = true) {
-        // TOFU: セッション鍵がある場合は暗号化
-        let payload: String
-        if encrypt,
-           CryptoManager.shared.hasSessionKey(for: peerId),
-           let wrapped = CryptoManager.shared.wrapMessage(message, for: peerId) {
-            payload = wrapped
-        } else {
-            payload = message
+        // client 経路 (この Mac が接続を仕掛けた側)
+        if ConnectionManager.shared.sendSecure(message, to: peerId) {
+            return
         }
-
-        // WebSocketClient経由で送信を試みる
-        if ConnectionManager.shared.activeConnections[peerId] != nil {
-            ConnectionManager.shared.send(payload, to: peerId)
-        } else {
-            // WebSocketServer経由で送信（逆マッピングを使う）
-            if let clientId = serverClientMapping.first(where: { $0.value == peerId })?.key {
-                webSocketServer?.send(payload, to: clientId)
-            } else {
-                print("[DiscoveryService] No route to peerId: \(peerId)")
-            }
+        // server 経路 (この Mac が受けた側): peerId → clientId を逆引き
+        if let clientId = serverClientMapping.first(where: { $0.value == peerId })?.key,
+           serverChannels[clientId]?.sendApp(message) == true {
+            return
         }
+        print("[DiscoveryService] No secure route to peerId: \(peerId) (channel not established?)")
     }
 
     /// localDeviceInfoからDeviceInfoMessage（公開鍵付き）を生成
@@ -648,7 +610,7 @@ class DiscoveryService: ObservableObject {
             screenWidth: info.screenWidth,
             screenHeight: info.screenHeight,
             screens: info.displays,
-            publicKey: CryptoManager.shared.publicKeyBase64
+            publicKey: NoiseIdentityStore.shared.publicKey.base64EncodedString()
         )
     }
 

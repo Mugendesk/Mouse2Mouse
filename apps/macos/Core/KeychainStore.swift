@@ -4,12 +4,15 @@ import Security
 /// Keychainアイテム種別 (service + account を一元管理)
 enum KeychainItem {
     case privateKey
+    /// mugenlink Noise Identity (64byte: private32||public32)。旧 privateKey を置き換える。
+    case noiseIdentity
 
     private static let service = "com.mugendesk.mouse2mouse.pairing"
 
     var account: String {
         switch self {
         case .privateKey: return "privateKey"
+        case .noiseIdentity: return "noiseIdentity"
         }
     }
 

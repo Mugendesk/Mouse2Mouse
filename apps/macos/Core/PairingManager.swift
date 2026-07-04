@@ -235,8 +235,6 @@ class PairingManager: ObservableObject {
         guard let warning = pendingKeyChangeWarning else { return }
         if trustNewKey {
             recordTrust(deviceId: warning.deviceId, hostname: warning.hostname, publicKey: warning.newPublicKey)
-            // 古いセッション/リプレイ状態を破棄して再導出を強制
-            CryptoManager.shared.removeSessionKey(for: warning.deviceId)
             print("[Pairing] User trusted new key for \(warning.hostname) — re-trust recorded")
         } else {
             print("[Pairing] User rejected key change for \(warning.hostname)")

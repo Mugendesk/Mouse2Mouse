@@ -1,5 +1,6 @@
 import Foundation
 import Network
+import Mugenlink
 
 /// カーソル位置のバイナリパケット形式
 /// JSON(~70bytes)よりも小さく(25bytes)、parse/encodeも高速
@@ -63,6 +64,13 @@ final class UDPCursorChannel {
     private var listener: NWListener?
     // ピアごとの送信用UDPコネクション（peerId → connection）
     private var sendConnections: [String: NWConnection] = [:]
+
+    // ピアごとの Noise Datagram チャネル (双方向)。カーソルパケットの暗号化に使う。
+    // ハンドシェイクは確立済みWS上をトンネルし、データ本体だけUDPで流す。
+    private var dgramChannels: [String: Mugenlink.Channel] = [:]
+    private var dgramReady: Set<String> = []
+    // dgramChannels/dgramReady 保護 (送信はcaller thread、受信/駆動はUDP queue から触るため)
+    private let dgramLock = NSLock()
 
     // 受信側: 受信済みtimestampを記録して重複/古いパケットを弾く
     private var lastReceivedTimestamp: Double = 0
@@ -159,16 +167,31 @@ final class UDPCursorChannel {
     }
 
     private func handleData(_ data: Data) {
-        guard let pkt = CursorPacket.decode(data) else { return }
-        // timestamp比較で重複/古いパケットを破棄（triple-sendでも一度だけ処理）
+        // 暗号化された Datagram フレーム。送信元 peerId が不明なので、確立済み各チャネルで
+        // 復号を試す。AEAD 認証で正しい 1 本のみ Message を返す (他は Rejected で無害)。
+        dgramLock.lock()
+        let channels = dgramChannels.filter { dgramReady.contains($0.key) }
+        dgramLock.unlock()
+        for (peerId, ch) in channels {
+            let evs = ch.onMessage(frame: data)
+            if evs.contains(where: { if case .message = $0 { return true }; return false }) {
+                drive(evs, peerId: peerId)
+                return
+            }
+        }
+    }
+
+    /// 復号済みカーソルパケットを処理する。
+    private func handleDecryptedCursor(_ plaintext: Data) {
+        guard let pkt = CursorPacket.decode(plaintext) else { return }
+        // timestamp比較で古いパケットを破棄 (nonce窓の二次防御)
         guard pkt.timestamp > lastReceivedTimestamp else { return }
-        // WS接続中のピアが居なければドロップ（WS切断後のゾンビ動作と同一LANスプーフィング両方を遮断）
+        // WS接続中のピアが居なければドロップ
         guard !DiscoveryService.shared.connectedPeers.isEmpty else { return }
         lastReceivedTimestamp = pkt.timestamp
         let recvTime = CFAbsoluteTimeGetCurrent()
         sendJitter.tick(at: pkt.timestamp)
         recvJitter.tick()
-        // recvTime - pkt.timestamp は送受信間のクロックずれを含むが、変動だけ見れば意味がある
         oneWayLatency.record(recvTime - pkt.timestamp)
         InputCapture.shared.peerMessageReceived()
         InputReceiver.shared.handleCursorMove(x: pkt.x, y: pkt.y)
@@ -195,6 +218,85 @@ final class UDPCursorChannel {
     func removePeer(peerId: String) {
         sendConnections[peerId]?.cancel()
         sendConnections.removeValue(forKey: peerId)
+        dgramLock.lock()
+        dgramChannels.removeValue(forKey: peerId)
+        dgramReady.remove(peerId)
+        dgramLock.unlock()
+    }
+
+    // MARK: - Secure Datagram Session (Noise over UDP)
+
+    /// WS 接続確立後に呼ぶ。UDP 用の Noise Datagram チャネルを張り始める。
+    /// `isInitiator`: WS で接続を仕掛けた側 (client) が true。responder(server) は
+    /// トンネルされてきた最初のフレームで遅延生成するので呼ばなくてよい。
+    func beginSecureSession(peerId: String, isInitiator: Bool) {
+        Self.queue.async { [weak self] in
+            guard let self = self else { return }
+            self.dgramLock.lock()
+            let exists = self.dgramChannels[peerId] != nil
+            let ch = exists ? nil : Self.makeChannel(initiator: isInitiator)
+            if let ch = ch { self.dgramChannels[peerId] = ch }
+            self.dgramLock.unlock()
+            if isInitiator, let ch = ch {
+                self.drive(ch.open(), peerId: peerId)
+            }
+        }
+    }
+
+    /// WS 上でトンネルされてきた Datagram ハンドシェイクフレームを投入する。
+    func receiveTunneledHandshake(peerId: String, frameBase64: String) {
+        guard let frame = Data(base64Encoded: frameBase64) else { return }
+        Self.queue.async { [weak self] in
+            guard let self = self else { return }
+            self.dgramLock.lock()
+            if self.dgramChannels[peerId] == nil {
+                // responder 側: 最初のフレームで遅延生成
+                self.dgramChannels[peerId] = Self.makeChannel(initiator: false)
+            }
+            let ch = self.dgramChannels[peerId]
+            self.dgramLock.unlock()
+            guard let ch = ch else { return }
+            self.drive(ch.onMessage(frame: frame), peerId: peerId)
+        }
+    }
+
+    private static func makeChannel(initiator: Bool) -> Mugenlink.Channel? {
+        // ハンドシェイクは認証済みWS上をトンネルするので MITM 不可。allowUnknown=true でよい。
+        let id = NoiseIdentityStore.shared.identity
+        if initiator {
+            return try? Mugenlink.Channel.newInitiator(
+                local: id, psk: nil, transport: .datagram, authorizedKeys: [], allowUnknown: true)
+        } else {
+            return try? Mugenlink.Channel.newResponder(
+                local: id, psk: nil, transport: .datagram, authorizedKeys: [], allowUnknown: true)
+        }
+    }
+
+    /// Channel のイベントを処理する。ハンドシェイクフレームは暗号化WS上でトンネル送出、
+    /// Message は復号済みカーソルとして処理。すべて Self.queue 上で呼ぶこと。
+    private func drive(_ events: [ChannelEvent], peerId: String) {
+        for ev in events {
+            switch ev {
+            case .send(let frame):
+                let b64 = frame.base64EncodedString()
+                DiscoveryService.shared.send(
+                    "{\"type\":\"udp_handshake\",\"frame\":\"\(b64)\"}", to: peerId)
+            case .established:
+                dgramLock.lock()
+                dgramReady.insert(peerId)
+                dgramLock.unlock()
+                print("[UDP] Secure cursor session established with \(peerId)")
+            case .message(let plaintext):
+                handleDecryptedCursor(plaintext)
+            case .rejected:
+                break  // UDP は不正/リプレイ常態。破棄のみ (クローズしない)
+            case .closed:
+                dgramLock.lock()
+                dgramChannels.removeValue(forKey: peerId)
+                dgramReady.remove(peerId)
+                dgramLock.unlock()
+            }
+        }
     }
 
     /// UDPでカーソル位置を送信（バイナリ26byte）
@@ -202,10 +304,18 @@ final class UDPCursorChannel {
     /// (1パケット連続損失耐性: 1-(loss^N) → 1%損失でも~0.000001%実効損失)
     func sendCursor(x: Double, y: Double, to peerId: String) {
         guard let conn = sendConnections[peerId] else { return }
-        let pkt = CursorPacket(timestamp: CFAbsoluteTimeGetCurrent(), x: x, y: y)
-        let data = pkt.encode()
+        // セキュアチャネル確立前は送らない (カーソルを平文でUDPに出さない)。
+        dgramLock.lock()
+        let ch = dgramReady.contains(peerId) ? dgramChannels[peerId] : nil
+        dgramLock.unlock()
+        guard let ch = ch else { return }
+
+        let pkt = CursorPacket(timestamp: CFAbsoluteTimeGetCurrent(), x: x, y: y).encode()
+        // 一度だけ暗号化 (nonce 1消費) し、同じフレームを redundancy 回送る。
+        // 受信側は nonce スライディングウィンドウで重複を弾く。
+        guard let frame = try? ch.send(plaintext: pkt) else { return }
         for _ in 0..<redundancy {
-            conn.send(content: data, completion: .idempotent)
+            conn.send(content: frame, completion: .idempotent)
         }
     }
 }

@@ -21,6 +21,11 @@ class HotkeyManager: ObservableObject {
     private var globalMonitor: Any?
     private var localMonitor: Any?
 
+    // 二重発火デバウンス: 複数経路(NSEventモニタ + CGEventTap)から同一押下で
+    // toggle()が連続呼び出しされても1回だけ効かせる
+    private var lastToggleTime: CFAbsoluteTime = 0
+    private let toggleDebounce: CFAbsoluteTime = 0.15
+
     // MARK: - Lifecycle
 
     private init() {
@@ -67,6 +72,15 @@ class HotkeyManager: ObservableObject {
     func toggle() {
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
+
+            // デバウンス: 同一押下が複数経路から来ても最初の1回だけ処理
+            let now = CFAbsoluteTimeGetCurrent()
+            guard now - self.lastToggleTime > self.toggleDebounce else {
+                print("[HotkeyManager] Toggle debounced (duplicate within \(self.toggleDebounce)s)")
+                return
+            }
+            self.lastToggleTime = now
+
             self.isSharingEnabled.toggle()
 
             if !self.isSharingEnabled {

@@ -13,3 +13,6 @@ build/
 
 # Claude Code
 .claude/
+
+# Sinfo (sf) — 本repoの主VCS。gitは凍結バックアップ/転送用のためsf内部DBは含めない
+.sinfo/

@@ -349,7 +349,11 @@ class InputCapture: ObservableObject {
             // ホットキーチェック（共有トグル: Ctrl+Option+S）
             let hkKeycode = Int(event.getIntegerValueField(.keyboardEventKeycode))
             let hkModifiers = getModifiers(from: event.flags)
-            if HotkeyManager.shared.checkHotkey(keycode: hkKeycode, modifiers: hkModifiers) {
+            // リモートモード中のみtap経由でホットキーを処理する。
+            // 非リモート時はlistenOnlyタップがイベントを消費しないため、同じkeyDownを
+            // HotkeyManagerのNSEventモニタも受け取り、toggle()が二重発火→相殺してしまう。
+            // (リモート中はtapがdefaultTapでイベントを消費するためNSEvent側には届かない)
+            if isRemoteMode, HotkeyManager.shared.checkHotkey(keycode: hkKeycode, modifiers: hkModifiers) {
                 // toggle() は @Published を変更する可能性があるためメインで実行
                 DispatchQueue.main.async {
                     HotkeyManager.shared.toggle()

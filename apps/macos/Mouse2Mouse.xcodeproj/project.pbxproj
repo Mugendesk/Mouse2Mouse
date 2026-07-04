@@ -8,7 +8,6 @@
 
 /* Begin PBXBuildFile section */
 		911779E72F0A252400E040C6 /* ClipboardSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 911779D72F0A252400E040C6 /* ClipboardSync.swift */; };
-		911779E82F0A252400E040C6 /* CryptoManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 911779D02F0A252400E040C6 /* CryptoManager.swift */; };
 		911779E92F0A252400E040C6 /* FileTransfer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 911779D82F0A252400E040C6 /* FileTransfer.swift */; };
 		911779EA2F0A252400E040C6 /* ConnectionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 911779CF2F0A252400E040C6 /* ConnectionManager.swift */; };
 		911779EB2F0A252400E040C6 /* InputCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 911779D22F0A252400E040C6 /* InputCapture.swift */; };
@@ -31,13 +30,14 @@
 		911779FC2F0A252400E040C6 /* HotkeyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 911779FB2F0A252400E040C6 /* HotkeyManager.swift */; };
 		91AA1B2C3D4E5F6010000001 /* UDPCursorChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91AA1B2C3D4E5F6010000002 /* UDPCursorChannel.swift */; };
 		91AA1B2C3D4E5F6010000003 /* KeychainStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91AA1B2C3D4E5F6010000004 /* KeychainStore.swift */; };
+		91C000000000000000000002 /* SecureChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91C000000000000000000001 /* SecureChannel.swift */; };
 		91AA20000000000000000001 /* SecurityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91AA20000000000000000002 /* SecurityTests.swift */; };
+		91B000000000000000000003 /* Mugenlink in Frameworks */ = {isa = PBXBuildFile; productRef = 91B000000000000000000002 /* Mugenlink */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		911779C12F0A212E00E040C6 /* Mouse2Mouse.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Mouse2Mouse.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		911779CF2F0A252400E040C6 /* ConnectionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionManager.swift; sourceTree = "<group>"; };
-		911779D02F0A252400E040C6 /* CryptoManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CryptoManager.swift; sourceTree = "<group>"; };
 		911779D12F0A252400E040C6 /* DiscoveryService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiscoveryService.swift; sourceTree = "<group>"; };
 		911779D22F0A252400E040C6 /* InputCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputCapture.swift; sourceTree = "<group>"; };
 		911779D32F0A252400E040C6 /* PairingManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingManager.swift; sourceTree = "<group>"; };
@@ -60,6 +60,7 @@
 		911779FB2F0A252400E040C6 /* HotkeyManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotkeyManager.swift; sourceTree = "<group>"; };
 		91AA1B2C3D4E5F6010000002 /* UDPCursorChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UDPCursorChannel.swift; sourceTree = "<group>"; };
 		91AA1B2C3D4E5F6010000004 /* KeychainStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainStore.swift; sourceTree = "<group>"; };
+		91C000000000000000000001 /* SecureChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecureChannel.swift; sourceTree = "<group>"; };
 		911779FD2F0A57D600E040C6 /* Mouse2Mouse.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Mouse2Mouse.entitlements; sourceTree = "<group>"; };
 		91AA20000000000000000002 /* SecurityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecurityTests.swift; sourceTree = "<group>"; };
 		91AA20000000000000000003 /* Mouse2MouseTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = Mouse2MouseTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -78,6 +79,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				91B000000000000000000003 /* Mugenlink in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -127,7 +129,6 @@
 			isa = PBXGroup;
 			children = (
 				911779CF2F0A252400E040C6 /* ConnectionManager.swift */,
-				911779D02F0A252400E040C6 /* CryptoManager.swift */,
 				911779D12F0A252400E040C6 /* DiscoveryService.swift */,
 				911779FB2F0A252400E040C6 /* HotkeyManager.swift */,
 				911779D22F0A252400E040C6 /* InputCapture.swift */,
@@ -136,6 +137,7 @@
 				911779D42F0A252400E040C6 /* PermissionManager.swift */,
 				911779D52F0A252400E040C6 /* ScreenManager.swift */,
 				911779FD2F0A252400E040C6 /* PerfLogger.swift */,
+				91C000000000000000000001 /* SecureChannel.swift */,
 			);
 			path = Core;
 			sourceTree = "<group>";
@@ -194,6 +196,7 @@
 			);
 			name = Mouse2Mouse;
 			packageProductDependencies = (
+				91B000000000000000000002 /* Mugenlink */,
 			);
 			productName = Mouse2Mouse;
 			productReference = 911779C12F0A212E00E040C6 /* Mouse2Mouse.app */;
@@ -244,6 +247,9 @@
 			);
 			mainGroup = 911779B82F0A212E00E040C6;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				91B000000000000000000001 /* XCLocalSwiftPackageReference "swift" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 911779C22F0A212E00E040C6 /* Products */;
 			projectDirPath = "";
@@ -271,7 +277,6 @@
 			buildActionMask = 2147483647;
 			files = (
 				911779E72F0A252400E040C6 /* ClipboardSync.swift in Sources */,
-				911779E82F0A252400E040C6 /* CryptoManager.swift in Sources */,
 				911779E92F0A252400E040C6 /* FileTransfer.swift in Sources */,
 				911779EA2F0A252400E040C6 /* ConnectionManager.swift in Sources */,
 				911779EB2F0A252400E040C6 /* InputCapture.swift in Sources */,
@@ -294,6 +299,7 @@
 				911779FE2F0A252400E040C6 /* PerfLogger.swift in Sources */,
 				91AA1B2C3D4E5F6010000001 /* UDPCursorChannel.swift in Sources */,
 				91AA1B2C3D4E5F6010000003 /* KeychainStore.swift in Sources */,
+				91C000000000000000000002 /* SecureChannel.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -600,6 +606,21 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		91B000000000000000000001 /* XCLocalSwiftPackageReference "swift" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../../../../mugenlink/swift;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		91B000000000000000000002 /* Mugenlink */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 91B000000000000000000001 /* XCLocalSwiftPackageReference "swift" */;
+			productName = Mugenlink;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 911779B92F0A212E00E040C6 /* Project object */;
 }

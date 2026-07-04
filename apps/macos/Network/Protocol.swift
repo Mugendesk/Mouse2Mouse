@@ -25,7 +25,9 @@ enum MessageType: String, Codable {
     case fileData = "file_data"
     case fileComplete = "file_complete"
     case roleChange = "role_change"  // 親子役割変更通知
-    case encrypted = "encrypted"  // 暗号化ラッパー
+    case encrypted = "encrypted"  // 暗号化ラッパー(旧CryptoManager、廃止予定)
+    case noise = "noise"  // Noise Channel フレーム envelope
+    case udpHandshake = "udp_handshake"  // UDP用Datagram Channelのハンドシェイクを暗号化WS上でトンネル
 }
 
 // MARK: - Base Message

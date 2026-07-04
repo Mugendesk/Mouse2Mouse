@@ -1,5 +1,4 @@
 import XCTest
-import CryptoKit
 @testable import Mouse2Mouse
 
 /// セキュリティ強化(リプレイ防止/Fingerprint/Keychain)の単体テスト
@@ -64,106 +63,62 @@ final class SecurityTests: XCTestCase {
         mgr.unpair(deviceId: deviceId)
     }
 
-    // MARK: - Replay Protection (Encrypt/Decrypt Round-trip)
+    // MARK: - SecureChannel (Noise) Round-trip & fail-open elimination
 
-    /// 2つの一時CryptoManagerをpeerとしてセッション確立し、暗号化/復号できることを確認
-    func testEncryptDecryptRoundTrip() {
-        // 共有シングルトンに依存するためpeerId/メッセージはユニークに
-        let crypto = CryptoManager.shared
-        let peerId = "peer-roundtrip-\(UUID().uuidString)"
+    /// 2つの SecureChannel をループバック接続し、ハンドシェイクが完了して
+    /// アプリメッセージが暗号化往復できることを確認する。
+    func testSecureChannelHandshakeAndRoundTrip() {
+        var a: SecureChannel!
+        var b: SecureChannel!
 
-        // テスト用にpeer公開鍵としてランダム鍵を導出
-        let peerPrivate = Curve25519.KeyAgreement.PrivateKey()
-        let peerPublicBase64 = peerPrivate.publicKey.rawRepresentation.base64EncodedString()
+        // sendFrame は envelope テキスト。相手の receiveFrame(frame Data) に渡す。
+        a = SecureChannel.initiator(sendFrame: { env in
+            if let frame = SecureChannel.decodeEnvelope(env) { b.receiveFrame(frame) }
+        })
+        b = SecureChannel.responder(sendFrame: { env in
+            if let frame = SecureChannel.decodeEnvelope(env) { a.receiveFrame(frame) }
+        })
 
-        XCTAssertTrue(crypto.deriveSessionKey(peerPublicKeyBase64: peerPublicBase64, peerId: peerId))
-        XCTAssertTrue(crypto.hasSessionKey(for: peerId))
+        let bEstablished = expectation(description: "b established")
+        b.onEstablished = { _, _, _, _ in bEstablished.fulfill() }
 
-        let original = "hello replay protection \(UUID().uuidString)"
-        guard let wrapped = crypto.wrapMessage(original, for: peerId) else {
-            XCTFail("wrap failed")
-            return
+        let gotMessage = expectation(description: "message delivered to b")
+        let payload = "{\"type\":\"clipboard\",\"nonce\":\"\(UUID().uuidString)\"}"
+        b.onMessage = { msg in
+            XCTAssertEqual(msg, payload)
+            gotMessage.fulfill()
         }
 
-        guard let decrypted = crypto.unwrapMessage(wrapped, from: peerId) else {
-            XCTFail("unwrap failed")
-            return
-        }
-        XCTAssertEqual(decrypted, original)
+        a.start()  // 同期的にハンドシェイクが往復して確立する
+        wait(for: [bEstablished], timeout: 2.0)
+        XCTAssertTrue(a.isEstablished && b.isEstablished, "both sides must establish")
 
-        crypto.removeSessionKey(for: peerId)
+        XCTAssertTrue(a.sendApp(payload), "sendApp should succeed after establish")
+        wait(for: [gotMessage], timeout: 2.0)
     }
 
-    func testReplayRejectsDuplicateMessage() {
-        let crypto = CryptoManager.shared
-        let peerId = "peer-replay-\(UUID().uuidString)"
+    /// fail-open 排除: ハンドシェイク完了前に app-data フレームを注入しても、
+    /// 平文が `onMessage` として上がってこないこと (旧実装の平文フォールバックが構造的に不可能)。
+    func testSecureChannelDropsAppDataBeforeHandshake() {
+        var delivered = false
+        let b = SecureChannel.responder(sendFrame: { _ in })
+        b.onMessage = { _ in delivered = true }
 
-        let peerPrivate = Curve25519.KeyAgreement.PrivateKey()
-        let peerPublicBase64 = peerPrivate.publicKey.rawRepresentation.base64EncodedString()
-        XCTAssertTrue(crypto.deriveSessionKey(peerPublicKeyBase64: peerPublicBase64, peerId: peerId))
+        // tag=0x02 (AppData) の生フレームを確立前に注入。
+        let injected = Data([0x02]) + Data("pretend-this-is-plaintext".utf8)
+        b.receiveFrame(injected)
 
-        guard let wrapped = crypto.wrapMessage("first-and-only", for: peerId) else {
-            XCTFail("wrap failed")
-            return
-        }
-
-        // 1回目は復号成功
-        XCTAssertNotNil(crypto.unwrapMessage(wrapped, from: peerId))
-        // 2回目(=リプレイ)は拒否される
-        XCTAssertNil(crypto.unwrapMessage(wrapped, from: peerId),
-                     "replay (same seq) must be rejected")
-
-        crypto.removeSessionKey(for: peerId)
+        XCTAssertFalse(delivered, "app-data before handshake must never surface as plaintext")
+        XCTAssertFalse(b.isEstablished, "channel must not establish from an app-data frame")
     }
 
-    func testReplayRejectsOldTimestamp() {
-        let crypto = CryptoManager.shared
-        let peerId = "peer-ts-\(UUID().uuidString)"
-
-        let peerPrivate = Curve25519.KeyAgreement.PrivateKey()
-        let peerPublicBase64 = peerPrivate.publicKey.rawRepresentation.base64EncodedString()
-        XCTAssertTrue(crypto.deriveSessionKey(peerPublicKeyBase64: peerPublicBase64, peerId: peerId))
-
-        // 内部encrypt経由でデータ部を作り、外側ラッパーを古いtimestampで自前構築する
-        guard let encryptedPayload = crypto.encrypt("stale", for: peerId) else {
-            XCTFail("encrypt failed")
-            return
-        }
-        // ラッパーJSONを手動構築 (timestampを2時間前に)
-        let staleJSON = """
-        {"type":"encrypted","data":"\(encryptedPayload)","timestamp":\(Date().timeIntervalSince1970 - 7200),"seq":1}
-        """
-
-        XCTAssertNil(crypto.unwrapMessage(staleJSON, from: peerId),
-                     "messages outside timestamp window must be rejected")
-
-        crypto.removeSessionKey(for: peerId)
-    }
-
-    func testReplayStateResetOnSessionRemoval() {
-        let crypto = CryptoManager.shared
-        let peerId = "peer-reset-\(UUID().uuidString)"
-
-        let peerPrivate = Curve25519.KeyAgreement.PrivateKey()
-        let peerPublicBase64 = peerPrivate.publicKey.rawRepresentation.base64EncodedString()
-        XCTAssertTrue(crypto.deriveSessionKey(peerPublicKeyBase64: peerPublicBase64, peerId: peerId))
-
-        // 1メッセージ送信してseqを進める
-        _ = crypto.wrapMessage("m1", for: peerId)
-
-        // セッション削除→再導出するとseqがリセットされる
-        crypto.removeSessionKey(for: peerId)
-        XCTAssertTrue(crypto.deriveSessionKey(peerPublicKeyBase64: peerPublicBase64, peerId: peerId))
-
-        // 新しいセッションで送信したメッセージは seq=1 から始まるので受信側もリセット済みのはず
-        guard let wrapped = crypto.wrapMessage("m2", for: peerId) else {
-            XCTFail("wrap after reset failed")
-            return
-        }
-        XCTAssertNotNil(crypto.unwrapMessage(wrapped, from: peerId),
-                        "after session reset, new seq should be accepted")
-
-        crypto.removeSessionKey(for: peerId)
+    /// noise envelope の判定 (raw テキスト → frame) が往復すること。
+    func testEnvelopeEncodeDecodeRoundTrip() {
+        let frame = Data([0x01, 0xAA, 0xBB, 0xCC])
+        let env = SecureChannel.encodeEnvelope(frame)
+        XCTAssertEqual(SecureChannel.decodeEnvelope(env), frame)
+        // 非 noise テキストは nil
+        XCTAssertNil(SecureChannel.decodeEnvelope("{\"type\":\"cursor_move\",\"x\":1,\"y\":2}"))
     }
 
     // MARK: - Keychain Round-trip

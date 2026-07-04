@@ -206,17 +206,42 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Crash Safety
 
+    // GCDシグナルソースの保持用（解放されるとキャンセルされるため強参照で保持）
+    private var signalSources: [DispatchSourceSignal] = []
+
     private func installCrashSafetyHandlers() {
-        // あらゆる異常終了でカーソルロック・非表示を解除
-        let signals: [Int32] = [SIGINT, SIGTERM, SIGABRT, SIGSEGV, SIGBUS, SIGFPE, SIGILL]
-        for sig in signals {
-            signal(sig) { _ in
+        // --- 正常な終了シグナル (kill / Ctrl-C など) ---
+        // GCDのシグナルソース経由で処理する。イベントハンドラは通常の実行コンテキスト
+        // (グローバルキュー)で動くため、CGDisplayShowCursor / CGAssociate... を安全に呼べる。
+        // ※シグナルハンドラ内で直接これらを呼ぶとMach IPC/ロックを伴うため
+        //   デッドロックし、プロセスがカーネルで固着して kill -9 でも落ちなくなる。
+        // ※メインスレッドがハングしていても確実に後処理→終了できるよう .global() を使う。
+        let gracefulSignals: [Int32] = [SIGTERM, SIGINT]
+        for sig in gracefulSignals {
+            signal(sig, SIG_IGN)  // デフォルトの即時終了を抑止し、ソースに委ねる
+            let source = DispatchSource.makeSignalSource(signal: sig, queue: .global())
+            source.setEventHandler {
                 CGDisplayShowCursor(CGMainDisplayID())
                 CGAssociateMouseAndMouseCursorPosition(1)
-                // SIGTERM以外は異常終了
-                _exit(1)
+                exit(0)
+            }
+            source.resume()
+            signalSources.append(source)
+        }
+
+        // --- 異常終了シグナル (真のクラッシュ) ---
+        // 非同期シグナルコンテキストではasync-signal-safeな処理しか行えないため、
+        // CG呼び出しは行わずデフォルト処理に戻して再raiseする。
+        // プロセス死亡時にWindowServerがカーソル表示・関連付けを自動復元する。
+        let crashSignals: [Int32] = [SIGABRT, SIGSEGV, SIGBUS, SIGFPE, SIGILL]
+        for sig in crashSignals {
+            signal(sig) { s in
+                signal(s, SIG_DFL)
+                raise(s)
             }
         }
+
+        // 正常な exit() 時のフェイルセーフ。atexitは通常コンテキストのためCG呼び出しは安全。
         atexit {
             CGDisplayShowCursor(CGMainDisplayID())
             CGAssociateMouseAndMouseCursorPosition(1)
